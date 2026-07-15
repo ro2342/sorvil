@@ -4,9 +4,11 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Windows.Storage;
+using Windows.UI.Text;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Input;
+using Windows.UI.Xaml.Media;
 using Windows.UI.Xaml.Navigation;
 
 namespace Sorvil.Views
@@ -209,45 +211,106 @@ namespace Sorvil.Views
                 return;
             }
 
+            StackPanel panel = new StackPanel { Width = 260 };
+            panel.Children.Add(new TextBlock
+            {
+                Text = _record != null ? _record.Title : "Índice",
+                FontWeight = FontWeights.SemiBold,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(16, 12, 16, 8),
+            });
+
             if (_manifest.Toc.Count == 0)
             {
-                Flyout emptyFlyout = new Flyout
+                panel.Children.Add(new TextBlock
                 {
-                    Content = new TextBlock
-                    {
-                        Text = "Este EPUB não tem um índice (toc.ncx) que eu consiga ler.",
-                        TextWrapping = TextWrapping.Wrap,
-                        MaxWidth = 240,
-                    },
-                };
+                    Text = "Este EPUB não tem um índice (toc.ncx) que eu consiga ler.",
+                    TextWrapping = TextWrapping.Wrap,
+                    MaxWidth = 228,
+                    Margin = new Thickness(16, 0, 16, 12),
+                });
+                Flyout emptyFlyout = new Flyout { Content = panel };
                 emptyFlyout.ShowAt(TocButton);
                 return;
             }
 
+            // "Capítulo atual" é a entrada do índice com o maior SpineIndex
+            // que ainda não passou do capítulo aberto — o NCX não tem uma
+            // entrada pra cada arquivo do spine (um capítulo de verdade às
+            // vezes vira vários arquivos internos), então é o "mais próximo
+            // por baixo" que representa onde a leitura está.
+            int currentTocIndex = FindCurrentTocIndex();
+            SolidColorBrush accent = ThemeHelper.AccentBrush();
+
             ListView list = new ListView
             {
-                ItemsSource = _manifest.Toc,
-                DisplayMemberPath = "Title",
-                Width = 260,
-                MaxHeight = 360,
+                MaxHeight = 320,
+                SelectionMode = ListViewSelectionMode.None,
+                IsItemClickEnabled = true,
             };
+            ListViewItem currentContainer = null;
+            for (int i = 0; i < _manifest.Toc.Count; i++)
+            {
+                EpubTocEntry entry = _manifest.Toc[i];
+                bool isCurrent = i == currentTocIndex;
+                TextBlock text = new TextBlock
+                {
+                    Text = entry.Title,
+                    TextWrapping = TextWrapping.Wrap,
+                    FontWeight = isCurrent ? FontWeights.Bold : FontWeights.Normal,
+                };
+                if (isCurrent)
+                {
+                    text.Foreground = accent;
+                }
+                ListViewItem container = new ListViewItem { Content = text, Tag = entry };
+                if (isCurrent)
+                {
+                    currentContainer = container;
+                }
+                list.Items.Add(container);
+            }
             list.ItemClick += TocList_ItemClick;
-            list.IsItemClickEnabled = true;
-            list.SelectionMode = ListViewSelectionMode.None;
+            panel.Children.Add(list);
 
-            Flyout flyout = new Flyout { Content = list };
+            Flyout flyout = new Flyout { Content = panel };
             _tocFlyout = flyout;
             flyout.ShowAt(TocButton);
+
+            if (currentContainer != null)
+            {
+                list.ScrollIntoView(currentContainer);
+            }
+        }
+
+        private int FindCurrentTocIndex()
+        {
+            int best = -1;
+            int bestSpineIndex = -1;
+            for (int i = 0; i < _manifest.Toc.Count; i++)
+            {
+                int spineIndex = _manifest.Toc[i].SpineIndex;
+                if (spineIndex <= _chapterIndex && spineIndex > bestSpineIndex)
+                {
+                    bestSpineIndex = spineIndex;
+                    best = i;
+                }
+            }
+            return best;
         }
 
         private async void TocList_ItemClick(object sender, ItemClickEventArgs e)
         {
-            EpubTocEntry entry = (EpubTocEntry)e.ClickedItem;
+            ListViewItem clickedContainer = e.ClickedItem as ListViewItem;
+            EpubTocEntry entry = clickedContainer != null ? clickedContainer.Tag as EpubTocEntry : null;
             if (_tocFlyout != null)
             {
                 _tocFlyout.Hide();
             }
-            await NavigateToChapterAsync(entry.SpineIndex, null);
+            if (entry != null)
+            {
+                await NavigateToChapterAsync(entry.SpineIndex, null);
+            }
         }
 
         private async Task SavePositionAsync()
