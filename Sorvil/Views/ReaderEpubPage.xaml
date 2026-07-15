@@ -27,16 +27,18 @@
               Background="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <Button Grid.Column="0" Content="Anterior" Click="PreviousButton_Click" />
+            <Button x:Name="ReaderSettingsButton" Grid.Column="0" Content="Aa" Click="ReaderSettings_Click" Margin="0,0,8,0" />
+            <Button Grid.Column="1" Content="Anterior" Click="PreviousButton_Click" />
             <TextBlock x:Name="ChapterIndicatorText"
-                       Grid.Column="1"
+                       Grid.Column="2"
                        HorizontalAlignment="Center"
                        VerticalAlignment="Center"
                        TextTrimming="CharacterEllipsis" />
-            <Button Grid.Column="2" Content="Próximo" Click="NextButton_Click" />
+            <Button Grid.Column="3" Content="Próximo" Click="NextButton_Click" />
         </Grid>
     </Grid>
 </Page>

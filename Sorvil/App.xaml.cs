@@ -2,6 +2,7 @@ using System;
 using Sorvil.Services;
 using Windows.ApplicationModel;
 using Windows.ApplicationModel.Activation;
+using Windows.UI.ViewManagement;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Navigation;
@@ -54,6 +55,15 @@ namespace Sorvil
                     rootFrame.Navigate(typeof(MainPage), e.Arguments);
                 }
                 Window.Current.Activate();
+
+                // Tela cheia de verdade (sem barra de status) em vez de
+                // tentar colorir a StatusBar — essa API é universal (não
+                // exige a extensão "Windows Mobile" que causou o crash
+                // anterior) e resolve o problema dos ícones brancos
+                // invisíveis no tema Claro simplesmente não mostrando a
+                // barra de status nenhuma, igual os apps nativos (News,
+                // Forecast) fazem.
+                ApplicationView.GetForCurrentView().TryEnterFullScreenMode();
             }
         }
 
