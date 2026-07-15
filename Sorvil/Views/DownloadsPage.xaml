@@ -7,11 +7,55 @@
     mc:Ignorable="d"
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
 
-    <StackPanel Padding="20,24,20,20">
-        <TextBlock Text="Baixados" Style="{StaticResource TitleTextBlockStyle}" />
-        <TextBlock Text="Livros já baixados no aparelho (disponíveis offline) aparecem aqui."
+    <Grid Padding="20,24,20,20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="Baixados" Style="{StaticResource TitleTextBlockStyle}" Margin="0,0,0,16" />
+
+        <TextBlock x:Name="EmptyText"
+                   Grid.Row="1"
+                   Text="Nada baixado ainda. Toque num livro na Biblioteca e escolha um formato pra baixar."
                    Style="{StaticResource BodyTextBlockStyle}"
                    TextWrapping="Wrap"
-                   Margin="0,12,0,0" />
-    </StackPanel>
+                   Visibility="Collapsed" />
+
+        <ListView x:Name="BooksList" Grid.Row="1" SelectionMode="None" Visibility="Collapsed">
+            <ListView.ItemTemplate>
+                <DataTemplate>
+                    <Grid Margin="0,8" Padding="0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="48" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <Border Grid.Column="0"
+                                Background="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}"
+                                Width="48" Height="68">
+                            <Image Source="{Binding Cover, Mode=OneWay}" Stretch="Uniform" />
+                        </Border>
+
+                        <StackPanel Grid.Column="1" Margin="12,0" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding Title}"
+                                       TextWrapping="Wrap"
+                                       TextTrimming="CharacterEllipsis"
+                                       Style="{StaticResource BodyTextBlockStyle}" />
+                            <TextBlock Text="{Binding Subtitle}"
+                                       TextWrapping="Wrap"
+                                       Style="{StaticResource CaptionTextBlockStyle}" />
+                        </StackPanel>
+
+                        <Button Grid.Column="2"
+                                Content="Apagar"
+                                Click="Delete_Click"
+                                Tag="{Binding}"
+                                VerticalAlignment="Center" />
+                    </Grid>
+                </DataTemplate>
+            </ListView.ItemTemplate>
+        </ListView>
+    </Grid>
 </Page>

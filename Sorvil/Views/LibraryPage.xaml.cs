@@ -122,16 +122,7 @@ namespace Sorvil.Views
         private void BooksGrid_ItemClick(object sender, ItemClickEventArgs e)
         {
             LibraryItemViewModel item = (LibraryItemViewModel)e.ClickedItem;
-            // A tela de detalhe/download do livro chega na próxima leva —
-            // por enquanto só mostra um resumo rápido num flyout.
-            TextBlock content = new TextBlock
-            {
-                Text = string.IsNullOrEmpty(item.Subtitle) ? item.Title : item.Title + "\n" + item.Subtitle,
-                TextWrapping = TextWrapping.Wrap,
-                MaxWidth = 240,
-            };
-            Flyout flyout = new Flyout { Content = content };
-            flyout.ShowAt(BooksGrid);
+            Frame.Navigate(typeof(BookDetailPage), item.Entry);
         }
 
         private void FoldersList_ItemClick(object sender, ItemClickEventArgs e)

@@ -62,18 +62,24 @@
     <Compile Include="Models\ServerProfile.cs" />
     <Compile Include="Models\OpdsEntry.cs" />
     <Compile Include="Models\LibraryItemViewModel.cs" />
+    <Compile Include="Models\BookRecord.cs" />
 
     <Compile Include="Services\ThemeHelper.cs" />
     <Compile Include="Services\CredentialService.cs" />
     <Compile Include="Services\ServerConfigStore.cs" />
     <Compile Include="Services\OpdsClient.cs" />
     <Compile Include="Services\CoverCacheService.cs" />
+    <Compile Include="Services\LibraryDataStore.cs" />
+    <Compile Include="Services\DownloadService.cs" />
 
     <Compile Include="Views\HomePage.xaml.cs">
       <DependentUpon>HomePage.xaml</DependentUpon>
     </Compile>
     <Compile Include="Views\LibraryPage.xaml.cs">
       <DependentUpon>LibraryPage.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Views\BookDetailPage.xaml.cs">
+      <DependentUpon>BookDetailPage.xaml</DependentUpon>
     </Compile>
     <Compile Include="Views\DownloadsPage.xaml.cs">
       <DependentUpon>DownloadsPage.xaml</DependentUpon>
@@ -97,6 +103,10 @@
       <SubType>Designer</SubType>
     </Page>
     <Page Include="Views\LibraryPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Views\BookDetailPage.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </Page>

@@ -39,6 +39,33 @@ namespace Sorvil.Services
             }
         }
 
+        // Só lê o que já estiver em cache, sem tentar baixar — usado pela
+        // tela de Baixados, que não necessariamente tem mais a Uri
+        // original da capa (só a chave), e precisa funcionar sem rede.
+        public static async Task<BitmapImage> GetCachedImageIfExistsAsync(string cacheKey)
+        {
+            if (string.IsNullOrEmpty(cacheKey))
+            {
+                return null;
+            }
+
+            try
+            {
+                StorageFolder folder = await ApplicationData.Current.LocalFolder.GetFolderAsync(FolderName);
+                StorageFile file = await folder.GetFileAsync(SanitizeFileName(cacheKey) + ".img");
+                using (IRandomAccessStream stream = await file.OpenAsync(FileAccessMode.Read))
+                {
+                    BitmapImage bitmap = new BitmapImage();
+                    await bitmap.SetSourceAsync(stream);
+                    return bitmap;
+                }
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
         private static async Task<StorageFile> GetOrDownloadFileAsync(Uri coverUri, string cacheKey)
         {
             StorageFolder folder = await ApplicationData.Current.LocalFolder.CreateFolderAsync(
