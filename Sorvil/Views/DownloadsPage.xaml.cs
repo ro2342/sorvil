@@ -91,6 +91,11 @@ namespace Sorvil.Views
                 Frame.Navigate(typeof(ReaderPdfPage), item.Record.Id);
                 return;
             }
+            if (item.Record.Format == "epub" || item.Record.Format == "kepub.epub")
+            {
+                Frame.Navigate(typeof(ReaderEpubPage), item.Record.Id);
+                return;
+            }
 
             Flyout flyout = new Flyout
             {

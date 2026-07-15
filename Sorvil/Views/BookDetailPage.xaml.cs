@@ -100,11 +100,9 @@ namespace Sorvil.Views
             return (_entry.Id ?? _entry.Title) + ":" + extension;
         }
 
-        // Só PDF tem leitor pronto por enquanto — EPUB/KEPUB entram aqui
-        // assim que o leitor deles (WebView) existir.
         private static bool IsReadableFormat(string extension)
         {
-            return extension == "pdf";
+            return extension == "pdf" || extension == "epub" || extension == "kepub.epub";
         }
 
         private async Task RefreshFormatOptionsAsync()
@@ -151,6 +149,10 @@ namespace Sorvil.Views
             if (extension == "pdf")
             {
                 Frame.Navigate(typeof(ReaderPdfPage), recordId);
+            }
+            else if (extension == "epub" || extension == "kepub.epub")
+            {
+                Frame.Navigate(typeof(ReaderEpubPage), recordId);
             }
             else
             {

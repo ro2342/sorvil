@@ -1,0 +1,42 @@
+<Page
+    x:Class="Sorvil.Views.ReaderEpubPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <WebView x:Name="ContentWebView" Grid.Row="0" />
+
+        <ProgressRing x:Name="LoadingRing"
+                      Grid.RowSpan="2"
+                      IsActive="False"
+                      Width="32" Height="32"
+                      HorizontalAlignment="Center"
+                      VerticalAlignment="Center" />
+
+        <Grid Grid.Row="1"
+              Padding="12,8"
+              Background="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Button Grid.Column="0" Content="Anterior" Click="PreviousButton_Click" />
+            <TextBlock x:Name="ChapterIndicatorText"
+                       Grid.Column="1"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center"
+                       TextTrimming="CharacterEllipsis" />
+            <Button Grid.Column="2" Content="Próximo" Click="NextButton_Click" />
+        </Grid>
+    </Grid>
+</Page>
