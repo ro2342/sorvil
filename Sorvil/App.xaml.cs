@@ -1,4 +1,5 @@
 using System;
+using Sorvil.Services;
 using Windows.ApplicationModel;
 using Windows.ApplicationModel.Activation;
 using Windows.UI.Xaml;
@@ -43,6 +44,7 @@ namespace Sorvil
                 rootFrame = new Frame();
                 rootFrame.NavigationFailed += OnNavigationFailed;
                 Window.Current.Content = rootFrame;
+                ThemeModeService.Apply(ThemePreferenceStore.Get());
             }
 
             if (e.PrelaunchActivated == false)

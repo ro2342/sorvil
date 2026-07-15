@@ -39,17 +39,44 @@
 
         <PivotItem Header="Aparência">
             <StackPanel Padding="4,16,4,20">
-                <TextBlock Text="Tema claro/escuro/automático chega numa próxima leva."
-                           Style="{StaticResource BodyTextBlockStyle}"
-                           TextWrapping="Wrap" />
+                <TextBlock Text="Tema" Style="{StaticResource BodyTextBlockStyle}" Margin="0,0,0,8" />
+                <RadioButton x:Name="ThemeAutoRadio"
+                             Content="Automático (seguir o sistema)"
+                             GroupName="Theme"
+                             Tag="auto"
+                             Checked="ThemeRadio_Checked" />
+                <RadioButton x:Name="ThemeLightRadio"
+                             Content="Claro"
+                             GroupName="Theme"
+                             Tag="light"
+                             Checked="ThemeRadio_Checked" />
+                <RadioButton x:Name="ThemeDarkRadio"
+                             Content="Escuro"
+                             GroupName="Theme"
+                             Tag="dark"
+                             Checked="ThemeRadio_Checked" />
             </StackPanel>
         </PivotItem>
 
         <PivotItem Header="Sobre">
             <StackPanel Padding="4,16,4,20">
-                <TextBlock Text="Versão instalada e checagem de atualização chegam numa próxima leva."
+                <TextBlock x:Name="VersionText" Style="{StaticResource BodyTextBlockStyle}" Margin="0,0,0,16" />
+
+                <Button Content="Checar atualização" Click="CheckUpdate_Click" HorizontalAlignment="Left" Margin="0,0,0,12" />
+
+                <TextBlock x:Name="UpdateStatusText"
                            Style="{StaticResource BodyTextBlockStyle}"
-                           TextWrapping="Wrap" />
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,12" />
+
+                <Button x:Name="DownloadUpdateButton"
+                        Content="Baixar atualização"
+                        Click="DownloadUpdate_Click"
+                        HorizontalAlignment="Left"
+                        Visibility="Collapsed"
+                        Margin="0,0,0,12" />
+
+                <ProgressBar x:Name="UpdateProgress" Minimum="0" Maximum="100" Visibility="Collapsed" />
             </StackPanel>
         </PivotItem>
     </Pivot>

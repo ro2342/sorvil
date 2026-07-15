@@ -1,5 +1,7 @@
 using Sorvil.Models;
 using Sorvil.Services;
+using System;
+using Windows.Storage;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 
@@ -7,6 +9,8 @@ namespace Sorvil.Views
 {
     public sealed partial class SettingsPage : Page
     {
+        private bool _isApplyingLoadedTheme;
+
         public SettingsPage()
         {
             this.InitializeComponent();
@@ -19,7 +23,13 @@ namespace Sorvil.Views
             BaseUrlBox.Text = profile.BaseUrl ?? string.Empty;
             UsernameBox.Text = profile.Username ?? string.Empty;
             PasswordBox.Password = profile.Password ?? string.Empty;
+
+            LoadThemeSelection();
+
+            VersionText.Text = "Versão instalada: " + UpdateCheckService.GetInstalledVersion();
         }
+
+        // — Servidor —
 
         private async void TestButton_Click(object sender, RoutedEventArgs e)
         {
@@ -50,6 +60,86 @@ namespace Sorvil.Views
             };
             ServerConfigStore.Save(profile);
             StatusText.Text = "Salvo.";
+        }
+
+        // — Aparência —
+
+        private void LoadThemeSelection()
+        {
+            _isApplyingLoadedTheme = true;
+            string mode = ThemePreferenceStore.Get();
+            ThemeAutoRadio.IsChecked = mode == "auto";
+            ThemeLightRadio.IsChecked = mode == "light";
+            ThemeDarkRadio.IsChecked = mode == "dark";
+            _isApplyingLoadedTheme = false;
+        }
+
+        private void ThemeRadio_Checked(object sender, RoutedEventArgs e)
+        {
+            if (_isApplyingLoadedTheme)
+            {
+                return;
+            }
+            string mode = (string)((RadioButton)sender).Tag;
+            ThemePreferenceStore.Set(mode);
+            ThemeModeService.Apply(mode);
+        }
+
+        // — Sobre / Atualização —
+
+        private async void CheckUpdate_Click(object sender, RoutedEventArgs e)
+        {
+            UpdateStatusText.Text = "Checando...";
+            DownloadUpdateButton.Visibility = Visibility.Collapsed;
+
+            UpdateCheckResult result = await UpdateCheckService.CheckAsync();
+            if (!result.Success)
+            {
+                UpdateStatusText.Text = "Não consegui checar: " + result.Error;
+                return;
+            }
+
+            if (result.UpdateAvailable)
+            {
+                UpdateStatusText.Text = "Nova versão disponível: " + result.Latest;
+                DownloadUpdateButton.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                UpdateStatusText.Text = "Você já está na versão mais recente.";
+            }
+        }
+
+        private async void DownloadUpdate_Click(object sender, RoutedEventArgs e)
+        {
+            DownloadUpdateButton.IsEnabled = false;
+            UpdateProgress.Visibility = Visibility.Visible;
+            UpdateProgress.Value = 0;
+            UpdateStatusText.Text = "Baixando...";
+
+            try
+            {
+                Progress<double> progress = new Progress<double>(value => UpdateProgress.Value = value);
+                StorageFile file = await UpdateCheckService.DownloadUpdateAsync(progress);
+                if (file == null)
+                {
+                    UpdateStatusText.Text = "Download cancelado (nenhuma pasta escolhida).";
+                }
+                else
+                {
+                    UpdateStatusText.Text = "Baixado em " + file.Path + ". Abrindo o instalador...";
+                    await Windows.System.Launcher.LaunchFileAsync(file);
+                }
+            }
+            catch (Exception ex)
+            {
+                UpdateStatusText.Text = "Erro no download: " + ex.Message;
+            }
+            finally
+            {
+                DownloadUpdateButton.IsEnabled = true;
+                UpdateProgress.Visibility = Visibility.Collapsed;
+            }
         }
     }
 }

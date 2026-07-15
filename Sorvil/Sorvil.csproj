@@ -65,6 +65,8 @@
     <Compile Include="Models\BookRecord.cs" />
 
     <Compile Include="Services\ThemeHelper.cs" />
+    <Compile Include="Services\ThemeModeService.cs" />
+    <Compile Include="Services\ThemePreferenceStore.cs" />
     <Compile Include="Services\CredentialService.cs" />
     <Compile Include="Services\ServerConfigStore.cs" />
     <Compile Include="Services\OpdsClient.cs" />
@@ -72,6 +74,7 @@
     <Compile Include="Services\LibraryDataStore.cs" />
     <Compile Include="Services\DownloadService.cs" />
     <Compile Include="Services\EpubExtractor.cs" />
+    <Compile Include="Services\UpdateCheckService.cs" />
 
     <Compile Include="Views\HomePage.xaml.cs">
       <DependentUpon>HomePage.xaml</DependentUpon>
