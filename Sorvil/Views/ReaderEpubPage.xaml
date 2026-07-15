@@ -46,7 +46,13 @@
     </Page.Resources>
 
     <Grid x:Name="RootGrid" SizeChanged="RootGrid_SizeChanged">
-        <WebView x:Name="ContentWebView" SizeChanged="ContentWebView_SizeChanged" />
+        <!-- Sem WebView: cada "página" é um RichTextBlock (a primeira) ou
+             RichTextBlockOverflow (as seguintes), encadeados em tempo de
+             execução — técnica nativa padrão do UWP pra texto fluido
+             paginado, sem depender de CSS/motor de renderização nenhum.
+             Só um fica visível por vez (Visibility), os outros ficam
+             prontos por baixo pra virar página ser instantâneo. -->
+        <Grid x:Name="PagesHost" SizeChanged="PagesHost_SizeChanged" Background="White" />
 
         <!-- "Brilho": um overlay preto semitransparente por cima de tudo,
              com a Opacity controlada por um slider — não mexe em brilho de

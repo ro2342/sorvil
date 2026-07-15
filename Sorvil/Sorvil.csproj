@@ -73,6 +73,7 @@
     <Compile Include="Services\CoverCacheService.cs" />
     <Compile Include="Services\LibraryDataStore.cs" />
     <Compile Include="Services\DownloadService.cs" />
+    <Compile Include="Services\EpubContentParser.cs" />
     <Compile Include="Services\EpubExtractor.cs" />
     <Compile Include="Services\UpdateCheckService.cs" />
     <Compile Include="Services\ReaderNavigation.cs" />
