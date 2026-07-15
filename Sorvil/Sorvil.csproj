@@ -146,6 +146,19 @@
   </ItemGroup>
   <ItemGroup>
     <!--
+      Windows.UI.ViewManagement.StatusBar só existe na extensão "Windows
+      Mobile" — sem essa referência de SDK, o MSBuild nem acha o tipo
+      direito (erro CS0731/CS1069, "type forwarder ... causes a cycle"),
+      mesmo o projeto rodando só em telefone na prática. A checagem
+      "StatusBar.GetForCurrentView() == null" no código continua
+      garantindo que nada quebra se um dia rodar fora da família Mobile.
+    -->
+    <SDKReference Include="WindowsMobile, Version=10.0.17763.0">
+      <Name>Windows Mobile Extensions for the UWP</Name>
+    </SDKReference>
+  </ItemGroup>
+  <ItemGroup>
+    <!--
       Wildcard em vez de listar cada escala (gerado por
       generate_tile_assets.py a partir de logo.svg, ver README.md).
     -->
