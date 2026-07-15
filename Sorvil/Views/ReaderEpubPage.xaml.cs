@@ -5,37 +5,36 @@ using System.Threading.Tasks;
 using Windows.Storage;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
+using Windows.UI.Xaml.Input;
 using Windows.UI.Xaml.Navigation;
 
 namespace Sorvil.Views
 {
-    // Leitor de EPUB/KEPUB: casca 100% nativa (esta página, navegação por
-    // capítulo, indicador, ajustes de leitura), mas o conteúdo do
-    // capítulo — que é HTML/CSS por natureza do formato — roda num
-    // WebView nativo do UWP. KEPUB é tratado como EPUB comum (as
-    // marcações extras da Kobo não atrapalham renderização normal).
-    // Navegação é por capítulo inteiro (sem rolagem fina rastreada) —
-    // posição salva é só o índice do capítulo atual.
+    // Leitor de EPUB/KEPUB com paginação real de e-reader (tipo Kindle/
+    // Freda), não uma página de web corrida. A técnica: injeta CSS que
+    // transforma o <body> do capítulo em colunas do tamanho exato do
+    // WebView (column-width = largura do WebView, column-gap 0) — o
+    // motor de renderização já quebra o texto em "páginas" sozinho. Virar
+    // página é só aplicar um transform: translateX deslocando o conteúdo
+    // uma tela inteira pro lado (sem rolagem nativa visível, controle
+    // total via script). Zonas de toque nas laterais fazem o gesto
+    // "tocar pra virar página"; a casca (Anterior/Próximo/Aa) continua
+    // funcionando pra quem preferir botão.
     //
-    // O EPUB só é descompactado (custo real) na primeira abertura —
-    // EpubExtractor já cacheia o resultado em BooksExtracted/, então
-    // reabrir o mesmo livro é rápido. O indicador de carregamento só
-    // desliga quando o WebView termina de renderizar o capítulo
-    // (NavigationCompleted), não antes — senão a tela fica em branco sem
-    // feedback nenhum durante o tempo de extração/renderização.
-    //
-    // Tamanho de fonte e tema de leitura (Claro/Sépia/Escuro) são
-    // aplicados injetando um <style> no documento já carregado via
-    // WebView.InvokeScriptAsync — o livro não tem controle nenhum
-    // sobre esses estilos por padrão, então sem isso o texto sai do
-    // tamanho que o CSS do próprio EPUB definir (geralmente pensado pra
-    // tela grande, ficando minúsculo num telefone).
+    // KEPUB é tratado como EPUB comum — os <span> extras da Kobo não
+    // atrapalham a paginação. O EPUB só é descompactado (custo real) na
+    // primeira abertura — EpubExtractor já cacheia isso em
+    // BooksExtracted/, então reabrir o mesmo livro é rápido.
     public sealed partial class ReaderEpubPage : Page
     {
         private string _bookId;
         private string _folderName;
         private EpubManifest _manifest;
         private int _chapterIndex;
+        private int _pageIndexInChapter;
+        private int _totalPagesInChapter = 1;
+        private int? _pendingStartPage;
+        private bool _chromeVisible = true;
 
         public ReaderEpubPage()
         {
@@ -78,16 +77,26 @@ namespace Sorvil.Views
                     return;
                 }
 
-                int startIndex = 0;
-                int.TryParse(record.ReadingPositionJson, out startIndex);
-                if (startIndex < 0 || startIndex >= _manifest.SpineFiles.Count)
+                int startChapter = 0;
+                int startPage = 0;
+                string[] parts = (record.ReadingPositionJson ?? string.Empty).Split(':');
+                if (parts.Length >= 1)
                 {
-                    startIndex = 0;
+                    int.TryParse(parts[0], out startChapter);
+                }
+                if (parts.Length >= 2)
+                {
+                    int.TryParse(parts[1], out startPage);
+                }
+                if (startChapter < 0 || startChapter >= _manifest.SpineFiles.Count)
+                {
+                    startChapter = 0;
+                    startPage = 0;
                 }
 
                 // Não desliga o indicador aqui — ContentWebView_NavigationCompleted
                 // cuida disso quando o capítulo realmente terminar de renderizar.
-                await NavigateToChapterAsync(startIndex);
+                await NavigateToChapterAsync(startChapter, startPage);
             }
             catch (Exception ex)
             {
@@ -101,24 +110,43 @@ namespace Sorvil.Views
             ChapterIndicatorText.Text = message;
         }
 
-        private async Task NavigateToChapterAsync(int index)
+        // startPage: null = primeira página, -1 = última página (entrando
+        // de trás pra frente, ex.: botão Anterior no início de um capítulo).
+        private async Task NavigateToChapterAsync(int chapterIndex, int? startPage)
         {
-            _chapterIndex = index;
+            _chapterIndex = chapterIndex;
+            _pendingStartPage = startPage;
             LoadingRing.IsActive = true;
             ChapterIndicatorText.Text = "Carregando capítulo...";
-            Uri uri = EpubExtractor.BuildLocalContentUri(_folderName, _manifest.SpineFiles[index]);
+            Uri uri = EpubExtractor.BuildLocalContentUri(_folderName, _manifest.SpineFiles[chapterIndex]);
             ContentWebView.Navigate(uri);
-            await SavePositionAsync(index);
         }
 
         private async void ContentWebView_NavigationCompleted(WebView sender, WebViewNavigationCompletedEventArgs args)
         {
-            LoadingRing.IsActive = false;
-            if (_manifest != null)
-            {
-                ChapterIndicatorText.Text = "Capítulo " + (_chapterIndex + 1) + " / " + _manifest.SpineFiles.Count;
-            }
             await ApplyReaderStyleAsync();
+            _totalPagesInChapter = await GetTotalPagesAsync();
+
+            int targetPage;
+            if (_pendingStartPage == null)
+            {
+                targetPage = 0;
+            }
+            else if (_pendingStartPage.Value < 0)
+            {
+                targetPage = _totalPagesInChapter - 1;
+            }
+            else
+            {
+                targetPage = Math.Min(_pendingStartPage.Value, _totalPagesInChapter - 1);
+            }
+            _pendingStartPage = null;
+
+            await GoToPageAsync(targetPage);
+            UpdateIndicator();
+            await SavePositionAsync();
+
+            LoadingRing.IsActive = false;
         }
 
         private void ContentWebView_NavigationFailed(object sender, WebViewNavigationFailedEventArgs args)
@@ -127,32 +155,133 @@ namespace Sorvil.Views
             ChapterIndicatorText.Text = "Erro ao carregar o capítulo.";
         }
 
-        private async Task SavePositionAsync(int index)
+        private async void ContentWebView_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            // Rotação de tela ou primeira medição de layout — reaplica a
+            // paginação pro tamanho novo. Como isso é raro num telefone
+            // (orientação fixa na prática), não tenta preservar a posição
+            // exata: só reancora no início do capítulo atual.
+            if (_manifest == null || e.NewSize.Width <= 0 || e.NewSize.Height <= 0)
+            {
+                return;
+            }
+            await ApplyReaderStyleAsync();
+            _totalPagesInChapter = await GetTotalPagesAsync();
+            await GoToPageAsync(0);
+            UpdateIndicator();
+        }
+
+        private void UpdateIndicator()
+        {
+            if (_manifest == null)
+            {
+                return;
+            }
+            ChapterIndicatorText.Text = "Capítulo " + (_chapterIndex + 1) + "/" + _manifest.SpineFiles.Count +
+                " · página " + (_pageIndexInChapter + 1) + "/" + _totalPagesInChapter;
+        }
+
+        private async Task SavePositionAsync()
         {
             BookRecord record = await LibraryDataStore.GetAsync(_bookId);
             if (record == null)
             {
                 return;
             }
-            record.ReadingPositionJson = index.ToString();
+            record.ReadingPositionJson = _chapterIndex + ":" + _pageIndexInChapter;
             record.LastOpenedAt = DateTimeOffset.UtcNow.ToString("o");
             await LibraryDataStore.SaveAsync(record);
         }
 
+        // — navegação de página (usada pelos botões e pelas zonas de toque) —
+
+        private async Task GoToNextAsync()
+        {
+            if (_pageIndexInChapter < _totalPagesInChapter - 1)
+            {
+                await GoToPageAsync(_pageIndexInChapter + 1);
+                UpdateIndicator();
+                await SavePositionAsync();
+            }
+            else if (_manifest != null && _chapterIndex < _manifest.SpineFiles.Count - 1)
+            {
+                await NavigateToChapterAsync(_chapterIndex + 1, null);
+            }
+        }
+
+        private async Task GoToPreviousAsync()
+        {
+            if (_pageIndexInChapter > 0)
+            {
+                await GoToPageAsync(_pageIndexInChapter - 1);
+                UpdateIndicator();
+                await SavePositionAsync();
+            }
+            else if (_manifest != null && _chapterIndex > 0)
+            {
+                await NavigateToChapterAsync(_chapterIndex - 1, -1);
+            }
+        }
+
         private async void PreviousButton_Click(object sender, RoutedEventArgs e)
         {
-            if (_manifest != null && _chapterIndex > 0)
-            {
-                await NavigateToChapterAsync(_chapterIndex - 1);
-            }
+            await GoToPreviousAsync();
         }
 
         private async void NextButton_Click(object sender, RoutedEventArgs e)
         {
-            if (_manifest != null && _chapterIndex < _manifest.SpineFiles.Count - 1)
+            await GoToNextAsync();
+        }
+
+        private async void PreviousZone_Tapped(object sender, TappedRoutedEventArgs e)
+        {
+            await GoToPreviousAsync();
+        }
+
+        private async void NextZone_Tapped(object sender, TappedRoutedEventArgs e)
+        {
+            await GoToNextAsync();
+        }
+
+        private void ToggleChrome_Tapped(object sender, TappedRoutedEventArgs e)
+        {
+            // Opacity em vez de Visibility.Collapsed — a linha continua
+            // reservada no layout, então o WebView não muda de tamanho (o
+            // que invalidaria a paginação) só por causa do toque no meio.
+            _chromeVisible = !_chromeVisible;
+            BottomBar.Opacity = _chromeVisible ? 1 : 0;
+            BottomBar.IsHitTestVisible = _chromeVisible;
+        }
+
+        // — scripts de paginação —
+
+        private async Task<string> InvokeAsync(string script)
+        {
+            try
             {
-                await NavigateToChapterAsync(_chapterIndex + 1);
+                return await ContentWebView.InvokeScriptAsync("eval", new[] { script });
             }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        private async Task<int> GetTotalPagesAsync()
+        {
+            string result = await InvokeAsync(
+                "(function() { return Math.max(1, Math.ceil(document.body.scrollWidth / document.documentElement.clientWidth)); })();");
+            int pages;
+            return int.TryParse(result, out pages) && pages > 0 ? pages : 1;
+        }
+
+        private async Task GoToPageAsync(int pageIndex)
+        {
+            _pageIndexInChapter = pageIndex;
+            string script =
+                "(function() { document.body.style.transform = 'translateX(-' + (" + pageIndex +
+                " * document.documentElement.clientWidth) + 'px)'; })();";
+            await InvokeAsync(script);
         }
 
         // — ajustes de leitura (fonte + tema) —
@@ -190,7 +319,7 @@ namespace Sorvil.Views
             button.Click += async (sender, args) =>
             {
                 ReaderPreferenceStore.SetTheme(themeKey);
-                await ApplyReaderStyleAsync();
+                await ReapplyStyleAndRepaginateAsync();
             };
             return button;
         }
@@ -200,7 +329,19 @@ namespace Sorvil.Views
             int current = ReaderPreferenceStore.GetFontSizePercent();
             int updated = Math.Max(70, Math.Min(250, current + delta));
             ReaderPreferenceStore.SetFontSizePercent(updated);
+            await ReapplyStyleAndRepaginateAsync();
+        }
+
+        // Mudar fonte/tema muda quantas páginas cabem no capítulo — por
+        // isso repagina do zero (volta pra página 0) em vez de só reaplicar
+        // o CSS mantendo o índice de página antigo, que ficaria errado.
+        private async Task ReapplyStyleAndRepaginateAsync()
+        {
             await ApplyReaderStyleAsync();
+            _totalPagesInChapter = await GetTotalPagesAsync();
+            await GoToPageAsync(0);
+            UpdateIndicator();
+            await SavePositionAsync();
         }
 
         private async Task ApplyReaderStyleAsync()
@@ -226,26 +367,47 @@ namespace Sorvil.Views
                     break;
             }
 
+            double pageWidth = ContentWebView.ActualWidth;
+            double pageHeight = ContentWebView.ActualHeight;
+            if (pageWidth <= 0)
+            {
+                pageWidth = 400;
+            }
+            if (pageHeight <= 0)
+            {
+                pageHeight = 600;
+            }
+
+            // column-width faz o próprio motor de renderização quebrar o
+            // texto em "páginas" do tamanho do WebView, lado a lado —
+            // GoToPageAsync desloca esse conteúdo via transform em vez de
+            // rolagem nativa (sem barra de rolagem visível, controle
+            // exato). Sem padding no body de propósito — o respiro visual
+            // já vem da margem do WebView em XAML, evitando qualquer
+            // ambiguidade de box-model com column-width.
             string script =
                 "(function() {" +
                 "var style = document.getElementById('sorvil-reader-style');" +
                 "if (!style) { style = document.createElement('style'); style.id = 'sorvil-reader-style'; document.head.appendChild(style); }" +
-                "style.innerHTML = 'html, body { font-size: " + fontSize + "% !important; background-color: " + background + " !important; line-height: 1.5 !important; } " +
-                "body { padding: 16px !important; box-sizing: border-box !important; } " +
+                "style.innerHTML = " +
+                "'html { margin:0 !important; padding:0 !important; overflow:hidden !important; } " +
+                "body { " +
+                "margin:0 !important; padding:0 !important; " +
+                "font-size: " + fontSize + "% !important; " +
+                "background-color: " + background + " !important; " +
+                "line-height: 1.5 !important; " +
+                "height: " + (int)pageHeight + "px !important; " +
+                "column-width: " + (int)pageWidth + "px !important; " +
+                "column-gap: 0px !important; " +
+                "column-fill: auto !important; " +
+                "overflow: hidden !important; " +
+                "transition: none !important; " +
+                "} " +
                 "* { color: " + foreground + " !important; } " +
                 "img, table { max-width: 100% !important; height: auto !important; }';" +
                 "})();";
 
-            try
-            {
-                await ContentWebView.InvokeScriptAsync("eval", new[] { script });
-            }
-            catch (Exception)
-            {
-                // WebView pode não ter documento carregado ainda (ex.:
-                // chamado logo após um NavigationFailed) — sem problema,
-                // o próximo NavigationCompleted reaplica.
-            }
+            await InvokeAsync(script);
         }
     }
 }

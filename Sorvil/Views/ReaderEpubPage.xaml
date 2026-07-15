@@ -13,7 +13,25 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <WebView x:Name="ContentWebView" Grid.Row="0" />
+        <Grid Grid.Row="0">
+            <WebView x:Name="ContentWebView" Margin="16,10" SizeChanged="ContentWebView_SizeChanged" />
+
+            <!-- Zonas de toque por cima do WebView: esquerda volta página,
+                 direita avança, meio alterna a barra inferior — o mesmo
+                 padrão de Kindle/Freda. Ficam por cima de propósito: assim
+                 o toque nunca vira rolagem/seleção nativa do WebView, só
+                 controla a paginação via script. -->
+            <Grid Background="Transparent">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="1*" />
+                    <ColumnDefinition Width="1.4*" />
+                    <ColumnDefinition Width="1*" />
+                </Grid.ColumnDefinitions>
+                <Border Grid.Column="0" Background="Transparent" Tapped="PreviousZone_Tapped" />
+                <Border Grid.Column="1" Background="Transparent" Tapped="ToggleChrome_Tapped" />
+                <Border Grid.Column="2" Background="Transparent" Tapped="NextZone_Tapped" />
+            </Grid>
+        </Grid>
 
         <ProgressRing x:Name="LoadingRing"
                       Grid.RowSpan="2"
@@ -22,9 +40,11 @@
                       HorizontalAlignment="Center"
                       VerticalAlignment="Center" />
 
-        <Grid Grid.Row="1"
+        <Grid x:Name="BottomBar"
+              Grid.Row="1"
               Padding="12,8"
-              Background="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}">
+              Background="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}"
+              IsHitTestVisible="True">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
