@@ -95,7 +95,7 @@ namespace Sorvil.Views
             }
 
             LoadingRing.IsActive = true;
-            ChapterIndicatorText.Text = "Abrindo...";
+            LoadingStatusText.Text = "Abrindo...";
 
             try
             {
@@ -115,7 +115,7 @@ namespace Sorvil.Views
                 StorageFolder booksFolder = await ApplicationData.Current.LocalFolder.GetFolderAsync("Books");
                 StorageFile epubFile = await booksFolder.GetFileAsync(_record.LocalFilePath);
 
-                ChapterIndicatorText.Text = "Extraindo...";
+                LoadingStatusText.Text = "Extraindo...";
                 _manifest = await EpubExtractor.ExtractAndParseAsync(_bookId, epubFile);
                 _folderName = EpubExtractor.GetExtractedFolderName(_bookId);
 
@@ -157,7 +157,7 @@ namespace Sorvil.Views
         private void ShowLoadError(string message)
         {
             LoadingRing.IsActive = false;
-            ChapterIndicatorText.Text = message;
+            LoadingStatusText.Text = message;
         }
 
         // startPage: null = primeira página, -1 = última página (entrando
@@ -167,7 +167,7 @@ namespace Sorvil.Views
             _chapterIndex = chapterIndex;
             _pendingStartPage = startPage;
             LoadingRing.IsActive = true;
-            ChapterIndicatorText.Text = "Carregando capítulo...";
+            LoadingStatusText.Text = "Carregando capítulo...";
             Uri uri = EpubExtractor.BuildLocalContentUri(_folderName, _manifest.SpineFiles[chapterIndex]);
             ContentWebView.Navigate(uri);
         }
@@ -197,12 +197,13 @@ namespace Sorvil.Views
             await SavePositionAsync();
 
             LoadingRing.IsActive = false;
+            LoadingStatusText.Text = string.Empty;
         }
 
         private void ContentWebView_NavigationFailed(object sender, WebViewNavigationFailedEventArgs args)
         {
             LoadingRing.IsActive = false;
-            ChapterIndicatorText.Text = "Erro ao carregar o capítulo.";
+            LoadingStatusText.Text = "Erro ao carregar o capítulo.";
         }
 
         private async void ContentWebView_SizeChanged(object sender, SizeChangedEventArgs e)

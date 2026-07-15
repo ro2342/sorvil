@@ -128,7 +128,19 @@
                       IsActive="False"
                       Width="32" Height="32"
                       HorizontalAlignment="Center"
-                      VerticalAlignment="Center" />
+                      VerticalAlignment="Center"
+                      Margin="0,0,0,36" />
+
+        <!-- Status de carregamento/erro — independente da barra de baixo
+             (que some por padrão), pra sempre aparecer durante o primeiro
+             carregamento do livro, antes de qualquer toque na tela. -->
+        <TextBlock x:Name="LoadingStatusText"
+                   Grid.Row="1"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center"
+                   Margin="24,84,24,0"
+                   TextAlignment="Center"
+                   TextWrapping="Wrap" />
 
         <!-- Barra de baixo (some por padrão, aparece ao tocar no meio):
              fileira de ícones (fechar barra / índice / busca / próximo
