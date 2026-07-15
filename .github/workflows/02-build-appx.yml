@@ -49,17 +49,23 @@ jobs:
         with:
           sdk-version: 17763
 
+      # Compilado em Debug (não Release) de propósito: Release usa o
+      # compilador .NET Native, cujo corte estático de metadados causou um
+      # crash real no lançamento no aparelho (InvalidCastException,
+      # "InvalidCast_WinRT ... Frame") mesmo com o build do CI 100% verde
+      # — essa checagem só existe em runtime. É o mesmo sintoma e a mesma
+      # correção que o theartistsway já precisou aplicar (ver histórico
+      # daquele repo: "App instala mas fecha na hora de abrir").
       - name: Restaurar pacotes NuGet e compilar o appxbundle
         shell: cmd
         run: |
           msbuild Sorvil\Sorvil.csproj ^
             /restore ^
-            /p:Configuration=Release ^
+            /p:Configuration=Debug ^
             /p:Platform=ARM ^
             /p:AppxBundlePlatforms=ARM ^
             /p:AppxBundle=Always ^
             /p:UapAppxPackageBuildMode=SideloadOnly ^
-            /p:UseDotNetNativeToolchain=true ^
             /p:AppxPackageSigningEnabled=true ^
             /p:PackageCertificateKeyFile=Sorvil_TemporaryKey.pfx ^
             /p:PackageCertificatePassword=Sorvil2026! ^
