@@ -10,10 +10,29 @@
     <ScrollViewer>
         <StackPanel Padding="20,24,20,20">
             <TextBlock Text="Sorvil" Style="{StaticResource TitleTextBlockStyle}" />
-            <TextBlock Text="Capas dos livros e continuação de leitura aparecem aqui assim que o servidor estiver configurado."
+
+            <Border x:Name="SetupHintBorder"
+                    Style="{StaticResource CardBorderStyle}"
+                    Margin="0,16,0,0"
+                    Visibility="Collapsed">
+                <StackPanel>
+                    <TextBlock Text="Configure o seu Calibre-Web"
+                               Style="{StaticResource BodyTextBlockStyle}"
+                               FontWeight="SemiBold" />
+                    <TextBlock Text="Ainda não há um servidor configurado. Vá em Ajustes → Servidor pra conectar."
+                               Style="{StaticResource BodyTextBlockStyle}"
+                               TextWrapping="Wrap"
+                               Margin="0,4,0,12" />
+                    <Button Content="Abrir Ajustes" Click="OpenSettings_Click" HorizontalAlignment="Left" />
+                </StackPanel>
+            </Border>
+
+            <TextBlock x:Name="ReadyText"
+                       Text="Capas dos livros e continuação de leitura aparecem aqui."
                        Style="{StaticResource BodyTextBlockStyle}"
                        TextWrapping="Wrap"
-                       Margin="0,12,0,0" />
+                       Margin="0,16,0,0"
+                       Visibility="Collapsed" />
         </StackPanel>
     </ScrollViewer>
 </Page>

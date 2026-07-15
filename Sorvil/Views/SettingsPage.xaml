@@ -7,11 +7,50 @@
     mc:Ignorable="d"
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
 
-    <StackPanel Padding="20,24,20,20">
-        <TextBlock Text="Ajustes" Style="{StaticResource TitleTextBlockStyle}" />
-        <TextBlock Text="Configuração do servidor Calibre-Web, aparência e atualização do app aparecem aqui."
-                   Style="{StaticResource BodyTextBlockStyle}"
-                   TextWrapping="Wrap"
-                   Margin="0,12,0,0" />
-    </StackPanel>
+    <Pivot Title="Ajustes" Margin="12,12,12,0">
+        <PivotItem Header="Servidor">
+            <ScrollViewer>
+                <StackPanel Padding="4,16,4,20">
+                    <TextBlock Text="Endereço do Calibre-Web" Style="{StaticResource BodyTextBlockStyle}" Margin="0,0,0,4" />
+                    <TextBox x:Name="BaseUrlBox"
+                             PlaceholderText="http://192.168.1.10:8083"
+                             InputScope="Url"
+                             Margin="0,0,0,16" />
+
+                    <TextBlock Text="Usuário" Style="{StaticResource BodyTextBlockStyle}" Margin="0,0,0,4" />
+                    <TextBox x:Name="UsernameBox" Margin="0,0,0,16" />
+
+                    <TextBlock Text="Senha" Style="{StaticResource BodyTextBlockStyle}" Margin="0,0,0,4" />
+                    <PasswordBox x:Name="PasswordBox" Margin="0,0,0,16" />
+
+                    <StackPanel Orientation="Horizontal">
+                        <Button x:Name="TestButton" Content="Testar conexão" Click="TestButton_Click" Margin="0,0,12,0" />
+                        <Button x:Name="SaveButton" Content="Salvar" Click="SaveButton_Click" />
+                    </StackPanel>
+
+                    <ProgressRing x:Name="TestProgress" IsActive="False" Width="24" Height="24" HorizontalAlignment="Left" Margin="0,16,0,0" />
+                    <TextBlock x:Name="StatusText"
+                               TextWrapping="Wrap"
+                               Style="{StaticResource BodyTextBlockStyle}"
+                               Margin="0,16,0,0" />
+                </StackPanel>
+            </ScrollViewer>
+        </PivotItem>
+
+        <PivotItem Header="Aparência">
+            <StackPanel Padding="4,16,4,20">
+                <TextBlock Text="Tema claro/escuro/automático chega numa próxima leva."
+                           Style="{StaticResource BodyTextBlockStyle}"
+                           TextWrapping="Wrap" />
+            </StackPanel>
+        </PivotItem>
+
+        <PivotItem Header="Sobre">
+            <StackPanel Padding="4,16,4,20">
+                <TextBlock Text="Versão instalada e checagem de atualização chegam numa próxima leva."
+                           Style="{StaticResource BodyTextBlockStyle}"
+                           TextWrapping="Wrap" />
+            </StackPanel>
+        </PivotItem>
+    </Pivot>
 </Page>

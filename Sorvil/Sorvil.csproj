@@ -59,7 +59,12 @@
     </Compile>
     <Compile Include="Properties\AssemblyInfo.cs" />
 
+    <Compile Include="Models\ServerProfile.cs" />
+
     <Compile Include="Services\ThemeHelper.cs" />
+    <Compile Include="Services\CredentialService.cs" />
+    <Compile Include="Services\ServerConfigStore.cs" />
+    <Compile Include="Services\OpdsClient.cs" />
 
     <Compile Include="Views\HomePage.xaml.cs">
       <DependentUpon>HomePage.xaml</DependentUpon>
