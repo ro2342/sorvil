@@ -16,6 +16,7 @@ namespace Sorvil.Services
         private const string LineSpacingKey = "ReaderLineSpacing";
         private const string MarginPxKey = "ReaderMarginPx";
         private const string JustificationKey = "ReaderJustification";
+        private const string FontFamilyKey = "ReaderFontFamily";
 
         public static int GetFontSizePercent()
         {
@@ -104,7 +105,7 @@ namespace Sorvil.Services
             ApplicationData.Current.LocalSettings.Values[LineSpacingKey] = spacing;
         }
 
-        // Margem de leitura em px CSS (esquerda+direita) -- usada tanto no
+        // Margem de leitura em px CSS (esquerda+direita) — usada tanto no
         // padding do texto quanto nas contas de paginação/transform.
         public static int GetMarginPx()
         {
@@ -127,6 +128,19 @@ namespace Sorvil.Services
         public static void SetJustification(string justification)
         {
             ApplicationData.Current.LocalSettings.Values[JustificationKey] = justification;
+        }
+
+        // Pilha de font-family CSS — as opções oferecidas usam fontes que
+        // já vêm instaladas no Windows 10 Mobile, não fontes baixadas.
+        public static string GetFontFamily()
+        {
+            object value = ApplicationData.Current.LocalSettings.Values[FontFamilyKey];
+            return value as string ?? "Georgia, 'EB Garamond', serif";
+        }
+
+        public static void SetFontFamily(string fontFamily)
+        {
+            ApplicationData.Current.LocalSettings.Values[FontFamilyKey] = fontFamily;
         }
     }
 }

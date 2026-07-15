@@ -46,6 +46,18 @@ namespace Sorvil.Views
             Index,
         }
 
+        // Fontes que já vêm instaladas no Windows 10 Mobile — não
+        // precisa baixar/empacotar nada.
+        private static readonly string[] FontFamilyLabels = { "Padrão", "Segoe UI", "Times New Roman", "Verdana", "Consolas" };
+        private static readonly string[] FontFamilyValues =
+        {
+            "Georgia, 'EB Garamond', serif",
+            "'Segoe UI', sans-serif",
+            "'Times New Roman', serif",
+            "Verdana, sans-serif",
+            "Consolas, monospace",
+        };
+
         private string _bookId;
         private string _folderName;
         private EpubManifest _manifest;
@@ -192,8 +204,35 @@ namespace Sorvil.Views
             _pendingStartPage = startPage;
             LoadingRing.IsActive = true;
             LoadingStatusText.Text = "Carregando capítulo...";
+            UpdateWebViewBackgroundColor();
             Uri uri = EpubExtractor.BuildLocalContentUri(_folderName, _manifest.SpineFiles[chapterIndex]);
             ContentWebView.Navigate(uri);
+        }
+
+        // O WebView pinta com fundo branco por padrão antes de qualquer
+        // CSS carregar — como o tema escolhido só é aplicado DEPOIS que a
+        // navegação termina (ContentWebView_NavigationCompleted), isso
+        // aparecia como um flash branco antes de escurecer pro tema
+        // escuro a cada troca de capítulo. Setando DefaultBackgroundColor
+        // ANTES de navegar, o próprio WebView já nasce com a cor certa,
+        // sem esperar o CSS.
+        private void UpdateWebViewBackgroundColor()
+        {
+            string theme = ReaderPreferenceStore.GetTheme();
+            Color color;
+            switch (theme)
+            {
+                case "sepia":
+                    color = Color.FromArgb(0xFF, 0xF4, 0xEC, 0xD8);
+                    break;
+                case "dark":
+                    color = Color.FromArgb(0xFF, 0x1B, 0x1B, 0x1F);
+                    break;
+                default:
+                    color = Colors.White;
+                    break;
+            }
+            ContentWebView.DefaultBackgroundColor = color;
         }
 
         private async void ContentWebView_NavigationCompleted(WebView sender, WebViewNavigationCompletedEventArgs args)
@@ -292,7 +331,24 @@ namespace Sorvil.Views
                     Padding = new Thickness(18, 16, 18, 16),
                     Background = new SolidColorBrush(Colors.Transparent),
                 };
+                // Tapped direto no item, em vez de depender do ItemClick da
+                // ListView — mais confiável quando os itens já são
+                // ListViewItem prontos (não objetos de dados com
+                // DataTemplate), que é como este código monta a lista.
+                container.Tapped += ChapterDrawerItem_Tapped;
                 ChapterDrawerList.Items.Add(container);
+            }
+        }
+
+        private async void ChapterDrawerItem_Tapped(object sender, TappedRoutedEventArgs e)
+        {
+            ListViewItem container = sender as ListViewItem;
+            EpubTocEntry entry = container != null ? container.Tag as EpubTocEntry : null;
+            _state = ReaderChromeState.None;
+            ApplyReaderChromeState();
+            if (entry != null)
+            {
+                await NavigateToChapterAsync(entry.SpineIndex, null);
             }
         }
 
@@ -349,16 +405,13 @@ namespace Sorvil.Views
             ApplyReaderChromeState();
         }
 
-        private async void ChapterDrawerList_ItemClick(object sender, ItemClickEventArgs e)
+        // Tocar fora da lista (na parte do livro que continua visível ao
+        // lado) fecha o índice — mesmo comportamento de "tocar fora
+        // fecha" que a gaveta de navegação da Home já tinha.
+        private void IndexDismissArea_Tapped(object sender, TappedRoutedEventArgs e)
         {
-            ListViewItem clickedContainer = e.ClickedItem as ListViewItem;
-            EpubTocEntry entry = clickedContainer != null ? clickedContainer.Tag as EpubTocEntry : null;
-            _state = ReaderChromeState.None;
+            _state = ReaderChromeState.Toolbar;
             ApplyReaderChromeState();
-            if (entry != null)
-            {
-                await NavigateToChapterAsync(entry.SpineIndex, null);
-            }
         }
 
         private async Task SavePositionAsync()
@@ -607,10 +660,43 @@ namespace Sorvil.Views
             FontSizeSlider.Value = ReaderPreferenceStore.GetFontSizePercent();
             LineSpacingSlider.Value = ReaderPreferenceStore.GetLineSpacing();
             MarginSlider.Value = ReaderPreferenceStore.GetMarginPx();
+            UpdateFontFamilyLabel();
 
             AddSegButton(JustificationRow, "Esquerda", "left", ApplyJustification);
             AddSegButton(JustificationRow, "Justificado", "justify", ApplyJustification);
             RefreshSegRow(JustificationRow, ReaderPreferenceStore.GetJustification());
+        }
+
+        private void UpdateFontFamilyLabel()
+        {
+            string current = ReaderPreferenceStore.GetFontFamily();
+            int index = Array.IndexOf(FontFamilyValues, current);
+            FontFamilyText.Text = (index >= 0 ? FontFamilyLabels[index] : FontFamilyLabels[0]) + " ▾";
+        }
+
+        private void FontFamilyButton_Click(object sender, RoutedEventArgs e)
+        {
+            ListView list = new ListView
+            {
+                ItemsSource = FontFamilyLabels,
+                SelectionMode = ListViewSelectionMode.None,
+                IsItemClickEnabled = true,
+                Width = 200,
+                MaxHeight = 260,
+            };
+            list.ItemClick += async (s, a) =>
+            {
+                int index = Array.IndexOf(FontFamilyLabels, (string)a.ClickedItem);
+                if (index < 0)
+                {
+                    return;
+                }
+                ReaderPreferenceStore.SetFontFamily(FontFamilyValues[index]);
+                UpdateFontFamilyLabel();
+                await ReapplyStyleAndRepaginateAsync();
+            };
+            Flyout flyout = new Flyout { Content = list };
+            flyout.ShowAt(FontFamilyButton);
         }
 
         private void SetFontSizePercent(int percent)
@@ -685,6 +771,7 @@ namespace Sorvil.Views
         {
             ReaderPreferenceStore.SetTheme(value);
             RefreshSegRow(ThemeRow, value);
+            UpdateWebViewBackgroundColor();
             await ReapplyStyleAndRepaginateAsync();
         }
 
@@ -827,6 +914,7 @@ namespace Sorvil.Views
             double lineSpacing = ReaderPreferenceStore.GetLineSpacing();
             int margin = ReaderPreferenceStore.GetMarginPx();
             string justification = ReaderPreferenceStore.GetJustification();
+            string fontFamily = ReaderPreferenceStore.GetFontFamily();
 
             string background;
             string foreground;
@@ -846,27 +934,27 @@ namespace Sorvil.Views
                     break;
             }
 
+            // A causa mais provável da segunda coluna persistente: EPUBs
+            // reais trazem a PRÓPRIA folha de estilo (link/style no head),
+            // muitas vezes com `body { max-width: ...; margin: 0 auto; }`
+            // pensada pra tela de desktop. Isso faz a largura REAL do body
+            // ser diferente da largura do viewport que a gente mede aqui —
+            // então mesmo com column-width calculado certinho a partir do
+            // clientWidth, o body renderiza mais largo (ou mais estreito)
+            // que isso, e o motor de colunas do WebView decide que cabe
+            // mais de uma coluna. Por isso agora: (1) remove todo <link
+            // rel=stylesheet> e <style> que não seja o nosso, antes de
+            // aplicar qualquer coisa; (2) força width:100%/max-width:none
+            // em html e body, pra garantir que a largura de verdade seja
+            // sempre igual ao viewport, não o que o CSS original do livro
+            // pedia. column-count:1 continua como reforço, mas sozinho não
+            // bastava — a causa real era essa disputa de largura.
+            //
             // pageWidth/pageHeight são medidos de DENTRO do próprio
             // JavaScript (document.documentElement.clientWidth/Height),
             // não calculados em C# a partir de ContentWebView.ActualWidth
-            // — um valor vindo de fora pode não bater exatamente com o
-            // que o motor de renderização considera sua própria largura
-            // (diferença de escala/DPI entre DIPs do XAML e px CSS do
-            // WebView), o que fazia a coluna sair um pouco menor que a
-            // tela real e caber duas em vez de uma. Medindo por dentro,
-            // column-width sempre bate exato com a largura de verdade.
-            //
-            // Mesmo assim, arredondamento de sub-pixel (o layout real do
-            // WebView pode ter uma fração de pixel de diferença do inteiro
-            // que clientWidth reporta) ainda deixava o motor decidir criar
-            // uma segunda coluna bem estreita — visível como um "resto de
-            // texto" à direita, mais perceptível quanto menor a fonte
-            // (mais linhas cabem naquela fresta estreita). column-count:1
-            // força exatamente uma coluna sempre, não importa o quão perto
-            // column-width chegue do valor exato — column-width continua
-            // declarado só pra manter o cálculo de paginação em
-            // GetTotalPagesAsync/GoToPageAsync consistente com o que a
-            // coluna única realmente ocupa.
+            // — evita a diferença de escala/DPI entre DIPs do XAML e px
+            // CSS do WebView.
             //
             // A margem de leitura vira padding do body, não Margin do
             // WebView no XAML — um Margin ali deixava a cor de fundo da
@@ -882,15 +970,18 @@ namespace Sorvil.Views
             // escolhido.
             string script =
                 "(function() {" +
+                "var foreign = document.querySelectorAll('link[rel=\"stylesheet\"], style:not(#sorvil-reader-style)');" +
+                "for (var i = 0; i < foreign.length; i++) { foreign[i].parentNode.removeChild(foreign[i]); }" +
                 "var pageWidth = document.documentElement.clientWidth;" +
                 "var pageHeight = document.documentElement.clientHeight;" +
                 "var margin = " + margin + ";" +
                 "var style = document.getElementById('sorvil-reader-style');" +
                 "if (!style) { style = document.createElement('style'); style.id = 'sorvil-reader-style'; document.head.appendChild(style); }" +
                 "style.innerHTML = " +
-                "'html { margin:0 !important; padding:0 !important; overflow:hidden !important; background-color: " + background + " !important; } ' +" +
-                "'body { margin:0 !important; " +
+                "'html { margin:0 !important; padding:0 !important; width:100% !important; max-width:none !important; overflow:hidden !important; background-color: " + background + " !important; } ' +" +
+                "'body { margin:0 !important; width:100% !important; max-width:none !important; box-sizing:border-box !important; " +
                 "font-size: " + fontSize + "% !important; " +
+                "font-family: " + fontFamily + " !important; " +
                 "background-color: " + background + " !important; " +
                 "line-height: " + lineSpacing.ToString(System.Globalization.CultureInfo.InvariantCulture) + " !important; " +
                 "text-align: " + justification + " !important; " +
@@ -899,7 +990,7 @@ namespace Sorvil.Views
                 "column-count: 1 !important; " +
                 "overflow: hidden !important; " +
                 "} ' +" +
-                "'* { color: " + foreground + " !important; background-color: transparent !important; } ' +" +
+                "'* { color: " + foreground + " !important; background-color: transparent !important; max-width: 100% !important; } ' +" +
                 "'img, table { max-width: 100% !important; height: auto !important; background-color: initial !important; }';" +
                 "style.innerHTML += 'body { height: ' + pageHeight + 'px !important; padding: 0 ' + margin + 'px !important; column-width: ' + (pageWidth - margin * 2) + 'px !important; }';" +
                 "})();";

@@ -90,7 +90,13 @@
         <!-- Barra de cima escura + painéis de fonte/tema/gestos, anexados
              logo abaixo dela (não um Flyout por cima do texto) — some por
              padrão (modo imersivo), aparece ao tocar no meio da tela. -->
-        <StackPanel x:Name="TopChrome" VerticalAlignment="Top" Opacity="0" IsHitTestVisible="False">
+        <!-- RequestedTheme="Dark" força Slider/ToggleSwitch/Button a
+             usarem pincéis escuros do sistema em vez de herdar o tema
+             claro/escuro do dispositivo — sem isso, num aparelho com tema
+             Claro os controles padrão (trilha do slider, chave do
+             ToggleSwitch) ficavam com cores de tema claro por cima do
+             fundo escuro fixo destas barras, parecendo fora do lugar. -->
+        <StackPanel x:Name="TopChrome" RequestedTheme="Dark" VerticalAlignment="Top" Opacity="0" IsHitTestVisible="False">
             <Grid x:Name="ToolbarTop" Background="#FF3A3A3A" Padding="10,10">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
@@ -123,9 +129,9 @@
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <TextBlock Grid.Column="0" Text="Fonte" FontSize="12.5" Foreground="#FFBBBBBB" FontWeight="SemiBold" VerticalAlignment="Center" />
-                    <Border Grid.Column="2" BorderBrush="#FF666666" BorderThickness="1" Padding="10,6">
-                        <TextBlock Text="Padrão ▾" FontSize="12.5" Foreground="{StaticResource SorvilLightIconBrush}" />
-                    </Border>
+                    <Button x:Name="FontFamilyButton" Grid.Column="2" Click="FontFamilyButton_Click" Padding="10,6" Background="Transparent" BorderBrush="#FF666666" BorderThickness="1">
+                        <TextBlock x:Name="FontFamilyText" FontSize="12.5" Foreground="{StaticResource SorvilLightIconBrush}" />
+                    </Button>
                 </Grid>
                 <TextBlock Text="Tamanho da fonte" FontSize="12.5" Foreground="#FFBBBBBB" FontWeight="SemiBold" Margin="0,0,0,8" />
                 <Slider x:Name="FontSizeSlider" Minimum="70" Maximum="350" StepFrequency="10" Margin="0,0,0,14" ValueChanged="FontSizeSlider_ValueChanged" />
@@ -160,7 +166,7 @@
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
-                <Button Grid.Column="0" Click="CloseIndex_Click" Width="56" Height="48" Style="{StaticResource ReaderIconButtonStyle}">
+                <Button Grid.Column="0" Click="CloseIndex_Click" Width="48" Height="48" Style="{StaticResource ReaderIconButtonStyle}">
                     <FontIcon Glyph="&#xE700;" Foreground="White" FontSize="20" />
                 </Button>
                 <TextBlock x:Name="IndexHeaderTitleText"
@@ -172,12 +178,18 @@
                            TextTrimming="CharacterEllipsis"
                            Margin="4,0,16,0" />
             </Grid>
-            <Grid Grid.Row="1" HorizontalAlignment="Left">
+            <Grid Grid.Row="1" RequestedTheme="Dark">
+                <!-- Fecha o índice ao tocar fora da lista (na parte do
+                     conteúdo do livro que continua visível ao lado) —
+                     mesmo comportamento de "tocar fora fecha" que a gaveta
+                     de navegação da Home já tinha. Fica atrás da lista no
+                     Grid (declarada primeiro), então o toque num capítulo
+                     é capturado pela lista antes de chegar aqui. -->
+                <Border Background="Transparent" Tapped="IndexDismissArea_Tapped" />
                 <ListView x:Name="ChapterDrawerList"
+                          HorizontalAlignment="Left"
                           Background="#FF2C2C2C"
-                          SelectionMode="None"
-                          IsItemClickEnabled="True"
-                          ItemClick="ChapterDrawerList_ItemClick" />
+                          SelectionMode="None" />
             </Grid>
         </Grid>
 
@@ -185,7 +197,7 @@
              de ícones (índice / capítulo atual ou busca / busca) — só
              aparece junto com a de cima quando nenhum painel/índice está
              aberto. -->
-        <StackPanel x:Name="BottomBar" VerticalAlignment="Bottom" Background="#FF3A3A3A" Opacity="0" IsHitTestVisible="False" Padding="14,10,14,8">
+        <StackPanel x:Name="BottomBar" RequestedTheme="Dark" VerticalAlignment="Bottom" Background="#FF3A3A3A" Opacity="0" IsHitTestVisible="False" Padding="14,10,14,8">
             <TextBlock x:Name="BottomCaptionText"
                        FontSize="11"
                        Foreground="#FFBBBBBB"

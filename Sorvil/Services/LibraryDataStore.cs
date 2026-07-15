@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using Sorvil.Models;
 using Windows.Data.Json;
@@ -14,6 +15,16 @@ namespace Sorvil.Services
     public static class LibraryDataStore
     {
         private const string FileName = "books.json";
+
+        // Sem isso, duas chamadas concorrentes (ex.: o leitor salvando a
+        // posição a cada toque de página enquanto o usuário também arrasta
+        // um slider de fonte, que também salva a cada tique) abrem o MESMO
+        // arquivo ao mesmo tempo — StorageFile não serializa isso sozinho,
+        // e o resultado real no aparelho era "the process cannot access
+        // the file because it is being used by another process" toda vez
+        // que qualquer coisa no leitor era tocada. Um semáforo local
+        // garante que só uma leitura+escrita mexe no arquivo por vez.
+        private static readonly SemaphoreSlim FileLock = new SemaphoreSlim(1, 1);
 
         private static async Task<JsonObject> ReadAllAsync()
         {
@@ -42,16 +53,90 @@ namespace Sorvil.Services
 
         public static async Task<List<BookRecord>> GetAllAsync()
         {
-            JsonObject all = await ReadAllAsync();
-            List<BookRecord> records = new List<BookRecord>();
-            foreach (string key in all.Keys)
+            await FileLock.WaitAsync();
+            try
             {
-                records.Add(ToRecord(key, all[key].GetObject()));
+                JsonObject all = await ReadAllAsync();
+                List<BookRecord> records = new List<BookRecord>();
+                foreach (string key in all.Keys)
+                {
+                    records.Add(ToRecord(key, all[key].GetObject()));
+                }
+                return records;
             }
-            return records;
+            finally
+            {
+                FileLock.Release();
+            }
         }
 
         public static async Task<BookRecord> GetAsync(string id)
+        {
+            await FileLock.WaitAsync();
+            try
+            {
+                return await GetCoreAsync(id);
+            }
+            finally
+            {
+                FileLock.Release();
+            }
+        }
+
+        public static async Task SaveAsync(BookRecord record)
+        {
+            await FileLock.WaitAsync();
+            try
+            {
+                await SaveCoreAsync(record);
+            }
+            finally
+            {
+                FileLock.Release();
+            }
+        }
+
+        public static async Task DeleteAsync(string id)
+        {
+            await FileLock.WaitAsync();
+            try
+            {
+                JsonObject all = await ReadAllAsync();
+                if (all.ContainsKey(id))
+                {
+                    all.Remove(id);
+                    await WriteAllAsync(all);
+                }
+            }
+            finally
+            {
+                FileLock.Release();
+            }
+        }
+
+        // Lê e grava dentro da MESMA posse do semáforo — se cada metade
+        // tomasse o lock por conta própria, essa chamada composta ia
+        // travar esperando a si mesma (SemaphoreSlim não é reentrante).
+        public static async Task TouchLastOpenedAsync(string id)
+        {
+            await FileLock.WaitAsync();
+            try
+            {
+                BookRecord record = await GetCoreAsync(id);
+                if (record == null)
+                {
+                    return;
+                }
+                record.LastOpenedAt = DateTimeOffset.UtcNow.ToString("o");
+                await SaveCoreAsync(record);
+            }
+            finally
+            {
+                FileLock.Release();
+            }
+        }
+
+        private static async Task<BookRecord> GetCoreAsync(string id)
         {
             JsonObject all = await ReadAllAsync();
             if (!all.ContainsKey(id))
@@ -61,32 +146,11 @@ namespace Sorvil.Services
             return ToRecord(id, all[id].GetObject());
         }
 
-        public static async Task SaveAsync(BookRecord record)
+        private static async Task SaveCoreAsync(BookRecord record)
         {
             JsonObject all = await ReadAllAsync();
             all[record.Id] = ToJson(record);
             await WriteAllAsync(all);
-        }
-
-        public static async Task DeleteAsync(string id)
-        {
-            JsonObject all = await ReadAllAsync();
-            if (all.ContainsKey(id))
-            {
-                all.Remove(id);
-                await WriteAllAsync(all);
-            }
-        }
-
-        public static async Task TouchLastOpenedAsync(string id)
-        {
-            BookRecord record = await GetAsync(id);
-            if (record == null)
-            {
-                return;
-            }
-            record.LastOpenedAt = DateTimeOffset.UtcNow.ToString("o");
-            await SaveAsync(record);
         }
 
         private static IJsonValue ToJson(BookRecord record)
