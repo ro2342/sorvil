@@ -22,7 +22,12 @@
                    TextWrapping="Wrap"
                    Visibility="Collapsed" />
 
-        <ListView x:Name="BooksList" Grid.Row="1" SelectionMode="None" Visibility="Collapsed">
+        <ListView x:Name="BooksList"
+                  Grid.Row="1"
+                  SelectionMode="None"
+                  Visibility="Collapsed"
+                  IsItemClickEnabled="True"
+                  ItemClick="BooksList_ItemClick">
             <ListView.ItemTemplate>
                 <DataTemplate>
                     <Grid Margin="0,8" Padding="0,8">

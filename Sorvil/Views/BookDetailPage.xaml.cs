@@ -2,6 +2,7 @@ using Sorvil.Models;
 using Sorvil.Services;
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Threading.Tasks;
 using Windows.Storage;
 using Windows.UI.Xaml;
@@ -11,23 +12,57 @@ using Windows.UI.Xaml.Navigation;
 namespace Sorvil.Views
 {
     // Detalhe de um livro do catálogo: capa, metadados e um botão por
-    // formato disponível pra baixar (ou apagar, se já baixado). Abrir o
-    // leitor de verdade (EPUB/KEPUB via WebView, PDF via Windows.Data.Pdf)
-    // chega nas próximas duas levas — por enquanto o download já deixa o
-    // arquivo pronto no aparelho, visível em Baixados.
+    // formato disponível — "Baixar" se ainda não tem, "Abrir" se já tem e
+    // o formato tem leitor pronto (PDF; EPUB/KEPUB chegam na próxima
+    // leva), "Apagar" ao lado pra remover o que já foi baixado.
     public sealed partial class BookDetailPage : Page
     {
-        public sealed class FormatOption
+        public sealed class FormatOption : INotifyPropertyChanged
         {
             public OpdsAcquisitionLink Link { get; }
             public string Extension { get; }
-            public string ButtonLabel { get; set; }
+            public bool IsReadable { get; }
 
-            public FormatOption(OpdsAcquisitionLink link, string extension, string label)
+            private bool _isDownloaded;
+            public bool IsDownloaded
+            {
+                get { return _isDownloaded; }
+                set
+                {
+                    _isDownloaded = value;
+                    Raise("IsDownloaded");
+                    Raise("PrimaryLabel");
+                    Raise("DeleteVisibility");
+                }
+            }
+
+            public string PrimaryLabel
+            {
+                get
+                {
+                    if (!IsDownloaded)
+                    {
+                        return "Baixar (" + Extension + ")";
+                    }
+                    return IsReadable ? "Abrir (" + Extension + ")" : "Baixado (" + Extension + ")";
+                }
+            }
+
+            public Visibility DeleteVisibility => IsDownloaded ? Visibility.Visible : Visibility.Collapsed;
+
+            public FormatOption(OpdsAcquisitionLink link, string extension, bool isReadable, bool isDownloaded)
             {
                 Link = link;
                 Extension = extension;
-                ButtonLabel = label;
+                IsReadable = isReadable;
+                _isDownloaded = isDownloaded;
+            }
+
+            public event PropertyChangedEventHandler PropertyChanged;
+
+            private void Raise(string propertyName)
+            {
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
             }
         }
 
@@ -65,6 +100,13 @@ namespace Sorvil.Views
             return (_entry.Id ?? _entry.Title) + ":" + extension;
         }
 
+        // Só PDF tem leitor pronto por enquanto — EPUB/KEPUB entram aqui
+        // assim que o leitor deles (WebView) existir.
+        private static bool IsReadableFormat(string extension)
+        {
+            return extension == "pdf";
+        }
+
         private async Task RefreshFormatOptionsAsync()
         {
             List<FormatOption> options = new List<FormatOption>();
@@ -72,29 +114,53 @@ namespace Sorvil.Views
             {
                 string extension = DownloadService.GuessExtension(link.MimeType);
                 BookRecord existing = await LibraryDataStore.GetAsync(RecordId(extension));
-                string label = existing != null
-                    ? "Baixado (" + extension + ") — toque pra apagar"
-                    : "Baixar (" + extension + ")";
-                options.Add(new FormatOption(link, extension, label));
+                options.Add(new FormatOption(link, extension, IsReadableFormat(extension), existing != null));
             }
             FormatsList.ItemsSource = options;
         }
 
-        private async void FormatButton_Click(object sender, RoutedEventArgs e)
+        private async void PrimaryButton_Click(object sender, RoutedEventArgs e)
         {
-            Button button = (Button)sender;
-            FormatOption option = (FormatOption)button.Tag;
-            string recordId = RecordId(option.Extension);
+            FormatOption option = (FormatOption)((Button)sender).Tag;
 
-            BookRecord existing = await LibraryDataStore.GetAsync(recordId);
-            if (existing != null)
+            if (!option.IsDownloaded)
             {
-                await DownloadService.DeleteAsync(recordId, option.Extension);
-                await LibraryDataStore.DeleteAsync(recordId);
-                StatusText.Text = "Apagado.";
-                await RefreshFormatOptionsAsync();
+                await DownloadFormatAsync(option, (Button)sender);
                 return;
             }
+
+            if (option.IsReadable)
+            {
+                OpenReader(RecordId(option.Extension), option.Extension);
+            }
+        }
+
+        private async void DeleteButton_Click(object sender, RoutedEventArgs e)
+        {
+            FormatOption option = (FormatOption)((Button)sender).Tag;
+            string recordId = RecordId(option.Extension);
+
+            await DownloadService.DeleteAsync(recordId, option.Extension);
+            await LibraryDataStore.DeleteAsync(recordId);
+            option.IsDownloaded = false;
+            StatusText.Text = "Apagado.";
+        }
+
+        private void OpenReader(string recordId, string extension)
+        {
+            if (extension == "pdf")
+            {
+                Frame.Navigate(typeof(ReaderPdfPage), recordId);
+            }
+            else
+            {
+                StatusText.Text = "Leitor desse formato ainda não está pronto nesta versão.";
+            }
+        }
+
+        private async Task DownloadFormatAsync(FormatOption option, Button button)
+        {
+            string recordId = RecordId(option.Extension);
 
             button.IsEnabled = false;
             DownloadProgress.Visibility = Visibility.Visible;
@@ -116,8 +182,11 @@ namespace Sorvil.Views
                     CoverCacheKey = _entry.Id,
                 };
                 await LibraryDataStore.SaveAsync(record);
+                option.IsDownloaded = true;
 
-                StatusText.Text = "Baixado! Abrir o leitor chega numa próxima leva — o arquivo já está salvo (vê em Baixados).";
+                StatusText.Text = option.IsReadable
+                    ? "Baixado! Toque em \"Abrir\" pra começar a ler."
+                    : "Baixado! Esse formato ainda não tem leitor nesta versão — o arquivo já está salvo (vê em Baixados).";
             }
             catch (Exception ex)
             {
@@ -128,8 +197,6 @@ namespace Sorvil.Views
                 button.IsEnabled = true;
                 DownloadProgress.Visibility = Visibility.Collapsed;
             }
-
-            await RefreshFormatOptionsAsync();
         }
     }
 }

@@ -82,5 +82,26 @@ namespace Sorvil.Views
             await LibraryDataStore.DeleteAsync(item.Record.Id);
             await RefreshAsync();
         }
+
+        private void BooksList_ItemClick(object sender, ItemClickEventArgs e)
+        {
+            DownloadedItemViewModel item = (DownloadedItemViewModel)e.ClickedItem;
+            if (item.Record.Format == "pdf")
+            {
+                Frame.Navigate(typeof(ReaderPdfPage), item.Record.Id);
+                return;
+            }
+
+            Flyout flyout = new Flyout
+            {
+                Content = new TextBlock
+                {
+                    Text = "Leitor desse formato ainda não está pronto nesta versão.",
+                    TextWrapping = TextWrapping.Wrap,
+                    MaxWidth = 240,
+                },
+            };
+            flyout.ShowAt(BooksList);
+        }
     }
 }

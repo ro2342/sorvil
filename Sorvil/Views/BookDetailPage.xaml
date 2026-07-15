@@ -36,11 +36,23 @@
             <ItemsControl x:Name="FormatsList" Margin="0,20,0,0">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <Button Content="{Binding ButtonLabel}"
-                                Click="FormatButton_Click"
-                                Tag="{Binding}"
-                                HorizontalAlignment="Stretch"
-                                Margin="0,0,0,8" />
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Button Grid.Column="0"
+                                    Content="{Binding PrimaryLabel, Mode=OneWay}"
+                                    Click="PrimaryButton_Click"
+                                    Tag="{Binding}"
+                                    HorizontalAlignment="Stretch" />
+                            <Button Grid.Column="1"
+                                    Content="Apagar"
+                                    Click="DeleteButton_Click"
+                                    Tag="{Binding}"
+                                    Visibility="{Binding DeleteVisibility, Mode=OneWay}"
+                                    Margin="8,0,0,0" />
+                        </Grid>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
