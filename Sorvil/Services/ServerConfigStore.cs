@@ -14,7 +14,7 @@ namespace Sorvil.Services
         public static ServerProfile Load()
         {
             string baseUrl = ApplicationData.Current.LocalSettings.Values[BaseUrlKey] as string;
-            (string Username, string Password)? credential = CredentialService.TryGet();
+            StoredCredential credential = CredentialService.TryGet();
             return new ServerProfile
             {
                 BaseUrl = baseUrl,

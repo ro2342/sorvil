@@ -6,6 +6,15 @@ namespace Sorvil.Services
     // Usuário/senha do Calibre-Web nunca ficam em texto puro em disco —
     // vivem só no PasswordVault do próprio Windows, ligado à conta local
     // do aparelho.
+    // .NET Native/UWP old-style não tem System.ValueTuple disponível sem
+    // referência extra — por isso um retorno simples em classe em vez da
+    // sintaxe de tupla nomeada do C# 7.
+    public sealed class StoredCredential
+    {
+        public string Username { get; set; }
+        public string Password { get; set; }
+    }
+
     public static class CredentialService
     {
         private const string ResourceName = "Sorvil.CalibreWeb";
@@ -17,14 +26,14 @@ namespace Sorvil.Services
             vault.Add(new PasswordCredential(ResourceName, username ?? string.Empty, password ?? string.Empty));
         }
 
-        public static (string Username, string Password)? TryGet()
+        public static StoredCredential TryGet()
         {
             PasswordVault vault = new PasswordVault();
             try
             {
                 PasswordCredential credential = vault.FindAllByResource(ResourceName)[0];
                 credential.RetrievePassword();
-                return (credential.UserName, credential.Password);
+                return new StoredCredential { Username = credential.UserName, Password = credential.Password };
             }
             catch (Exception)
             {
