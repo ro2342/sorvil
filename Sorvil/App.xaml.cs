@@ -45,6 +45,7 @@ namespace Sorvil
                 rootFrame.NavigationFailed += OnNavigationFailed;
                 Window.Current.Content = rootFrame;
                 ThemeModeService.Apply(ThemePreferenceStore.Get());
+                ThemeModeService.AttachStatusBarSync();
             }
 
             if (e.PrelaunchActivated == false)

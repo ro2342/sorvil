@@ -37,15 +37,28 @@ namespace Sorvil.Services
 
         public static async Task<StorageFile> DownloadAsync(string bookId, Uri acquisitionUri, string extension, IProgress<double> progress)
         {
-            StorageFolder folder = await ApplicationData.Current.LocalFolder.CreateFolderAsync(
-                FolderName, CreationCollisionOption.OpenIfExists);
-            string fileName = SanitizeFileName(bookId) + "." + (extension ?? "bin");
-            StorageFile file = await folder.CreateFileAsync(fileName, CreationCollisionOption.ReplaceExisting);
-
             using (HttpClient client = OpdsClient.CreateAuthenticatedClient())
             using (HttpResponseMessage response = await client.GetAsync(acquisitionUri, HttpCompletionOption.ResponseHeadersRead))
             {
-                response.EnsureSuccessStatusCode();
+                if (!response.IsSuccessStatusCode)
+                {
+                    // Não usa EnsureSuccessStatusCode() aqui — no UWP a
+                    // exceção que ele lança às vezes surge só como um
+                    // código WinRT genérico (tipo
+                    // "NET_HTTP_MESSAGE_NOT_SUCESS_STATUSCODE"), sem dizer
+                    // qual foi o status de verdade. Isso é o que de fato
+                    // ajuda a diagnosticar por que um formato específico
+                    // não baixa (ex.: 404 quando o servidor não tem esse
+                    // formato convertido pra aquele livro).
+                    throw new Exception("O servidor respondeu " + (int)response.StatusCode +
+                        " (" + response.ReasonPhrase + ") pra esse link de download.");
+                }
+
+                StorageFolder folder = await ApplicationData.Current.LocalFolder.CreateFolderAsync(
+                    FolderName, CreationCollisionOption.OpenIfExists);
+                string fileName = SanitizeFileName(bookId) + "." + (extension ?? "bin");
+                StorageFile file = await folder.CreateFileAsync(fileName, CreationCollisionOption.ReplaceExisting);
+
                 long? totalBytes = response.Content.Headers.ContentLength;
 
                 using (Stream networkStream = await response.Content.ReadAsStreamAsync())
@@ -64,9 +77,9 @@ namespace Sorvil.Services
                         }
                     }
                 }
-            }
 
-            return file;
+                return file;
+            }
         }
 
         public static async Task DeleteAsync(string bookId, string extension)

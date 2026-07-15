@@ -52,11 +52,17 @@
                       Visibility="Collapsed"
                       SelectionMode="None"
                       IsItemClickEnabled="True"
-                      ItemClick="BooksGrid_ItemClick">
+                      ItemClick="BooksGrid_ItemClick"
+                      SizeChanged="BooksGrid_SizeChanged">
+                <GridView.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <ItemsWrapGrid Orientation="Horizontal" ItemWidth="110" />
+                    </ItemsPanelTemplate>
+                </GridView.ItemsPanel>
                 <GridView.ItemTemplate>
                     <DataTemplate>
-                        <StackPanel Width="120" Margin="4">
-                            <Border Background="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}" Height="160">
+                        <StackPanel Margin="4" HorizontalAlignment="Stretch">
+                            <Border Background="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}" Height="140">
                                 <Image Source="{Binding Cover, Mode=OneWay}" Stretch="Uniform" />
                             </Border>
                             <TextBlock Text="{Binding Title}"

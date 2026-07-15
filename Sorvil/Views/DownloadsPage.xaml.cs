@@ -1,41 +1,14 @@
 using Sorvil.Models;
 using Sorvil.Services;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.Threading.Tasks;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
-using Windows.UI.Xaml.Media;
 
 namespace Sorvil.Views
 {
     public sealed partial class DownloadsPage : Page
     {
-        public sealed class DownloadedItemViewModel : INotifyPropertyChanged
-        {
-            public BookRecord Record { get; }
-            public string Title => Record.Title;
-            public string Subtitle => (Record.Author ?? string.Empty) + " · " + Record.Format;
-
-            private ImageSource _cover;
-            public ImageSource Cover
-            {
-                get { return _cover; }
-                set
-                {
-                    _cover = value;
-                    PropertyChanged?.Invoke(this, new PropertyChangedEventArgs("Cover"));
-                }
-            }
-
-            public DownloadedItemViewModel(BookRecord record)
-            {
-                Record = record;
-            }
-
-            public event PropertyChangedEventHandler PropertyChanged;
-        }
-
         public DownloadsPage()
         {
             this.InitializeComponent();
@@ -50,23 +23,23 @@ namespace Sorvil.Views
         private async Task RefreshAsync()
         {
             List<BookRecord> records = await LibraryDataStore.GetAllAsync();
-            List<DownloadedItemViewModel> items = new List<DownloadedItemViewModel>();
+            List<BookRecordItemViewModel> items = new List<BookRecordItemViewModel>();
             foreach (BookRecord record in records)
             {
-                items.Add(new DownloadedItemViewModel(record));
+                items.Add(new BookRecordItemViewModel(record));
             }
 
             BooksList.ItemsSource = items;
             EmptyText.Visibility = items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
             BooksList.Visibility = items.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
 
-            foreach (DownloadedItemViewModel item in items)
+            foreach (BookRecordItemViewModel item in items)
             {
                 LoadCoverAsync(item);
             }
         }
 
-        private async void LoadCoverAsync(DownloadedItemViewModel item)
+        private async void LoadCoverAsync(BookRecordItemViewModel item)
         {
             // A capa já devia estar em cache local (foi baixada quando o
             // livro apareceu na Biblioteca/Home) — aqui só se lê o cache
@@ -77,7 +50,7 @@ namespace Sorvil.Views
 
         private async void Delete_Click(object sender, RoutedEventArgs e)
         {
-            DownloadedItemViewModel item = (DownloadedItemViewModel)((Button)sender).Tag;
+            BookRecordItemViewModel item = (BookRecordItemViewModel)((Button)sender).Tag;
             await DownloadService.DeleteAsync(item.Record.Id, item.Record.Format);
             await LibraryDataStore.DeleteAsync(item.Record.Id);
             await RefreshAsync();
@@ -85,15 +58,9 @@ namespace Sorvil.Views
 
         private void BooksList_ItemClick(object sender, ItemClickEventArgs e)
         {
-            DownloadedItemViewModel item = (DownloadedItemViewModel)e.ClickedItem;
-            if (item.Record.Format == "pdf")
+            BookRecordItemViewModel item = (BookRecordItemViewModel)e.ClickedItem;
+            if (ReaderNavigation.TryOpen(Frame, item.Record))
             {
-                Frame.Navigate(typeof(ReaderPdfPage), item.Record.Id);
-                return;
-            }
-            if (item.Record.Format == "epub" || item.Record.Format == "kepub.epub")
-            {
-                Frame.Navigate(typeof(ReaderEpubPage), item.Record.Id);
                 return;
             }
 

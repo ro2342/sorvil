@@ -28,11 +28,6 @@
                 </StackPanel>
             </Grid>
 
-            <TextBlock x:Name="SummaryText"
-                       Style="{StaticResource BodyTextBlockStyle}"
-                       TextWrapping="Wrap"
-                       Margin="0,20,0,0" />
-
             <ItemsControl x:Name="FormatsList" Margin="0,20,0,0">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
@@ -66,6 +61,11 @@
                        Style="{StaticResource BodyTextBlockStyle}"
                        TextWrapping="Wrap"
                        Margin="0,12,0,0" />
+
+            <TextBlock x:Name="SummaryText"
+                       Style="{StaticResource BodyTextBlockStyle}"
+                       TextWrapping="Wrap"
+                       Margin="0,20,0,0" />
         </StackPanel>
     </ScrollViewer>
 </Page>

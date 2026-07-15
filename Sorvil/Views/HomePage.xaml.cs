@@ -21,18 +21,79 @@ namespace Sorvil.Views
             ServerProfile profile = ServerConfigStore.Load();
             SetupHintBorder.Visibility = profile.IsConfigured ? Visibility.Collapsed : Visibility.Visible;
 
-            if (profile.IsConfigured)
+            if (!profile.IsConfigured)
             {
-                await LoadRecentAsync(profile);
-            }
-            else
-            {
+                ContinuingSection.Visibility = Visibility.Collapsed;
                 RecentSection.Visibility = Visibility.Collapsed;
                 ReadyText.Visibility = Visibility.Collapsed;
+                return;
             }
+
+            bool hasContinuing = await LoadContinuingAsync();
+            bool hasRecent = await LoadRecentAsync(profile);
+
+            ReadyText.Visibility = (!hasContinuing && !hasRecent) ? Visibility.Visible : Visibility.Collapsed;
         }
 
-        private async Task LoadRecentAsync(ServerProfile profile)
+        // — Você está lendo (BookRecord local, ordenado por última leitura) —
+
+        private async Task<bool> LoadContinuingAsync()
+        {
+            List<BookRecord> records = await LibraryDataStore.GetAllAsync();
+            List<BookRecord> withPosition = new List<BookRecord>();
+            foreach (BookRecord record in records)
+            {
+                if (!string.IsNullOrEmpty(record.LastOpenedAt))
+                {
+                    withPosition.Add(record);
+                }
+            }
+
+            // LastOpenedAt é ISO 8601 ("o") — ordena lexicograficamente
+            // igual a ordenar cronologicamente, sem precisar parsear.
+            withPosition.Sort((a, b) => string.CompareOrdinal(b.LastOpenedAt, a.LastOpenedAt));
+
+            List<BookRecordItemViewModel> items = new List<BookRecordItemViewModel>();
+            foreach (BookRecord record in withPosition)
+            {
+                if (items.Count >= 10)
+                {
+                    break;
+                }
+                items.Add(new BookRecordItemViewModel(record));
+            }
+
+            if (items.Count == 0)
+            {
+                ContinuingSection.Visibility = Visibility.Collapsed;
+                return false;
+            }
+
+            ContinuingGrid.ItemsSource = items;
+            ContinuingSection.Visibility = Visibility.Visible;
+
+            foreach (BookRecordItemViewModel item in items)
+            {
+                LoadContinuingCoverAsync(item);
+            }
+
+            return true;
+        }
+
+        private async void LoadContinuingCoverAsync(BookRecordItemViewModel item)
+        {
+            item.Cover = await CoverCacheService.GetCachedImageIfExistsAsync(item.Record.CoverCacheKey);
+        }
+
+        private void ContinuingGrid_ItemClick(object sender, ItemClickEventArgs e)
+        {
+            BookRecordItemViewModel item = (BookRecordItemViewModel)e.ClickedItem;
+            ReaderNavigation.TryOpen(Frame, item.Record);
+        }
+
+        // — Adicionados recentemente (catálogo OPDS, /opds/new) —
+
+        private async Task<bool> LoadRecentAsync(ServerProfile profile)
         {
             try
             {
@@ -57,34 +118,42 @@ namespace Sorvil.Views
                 if (items.Count == 0)
                 {
                     RecentSection.Visibility = Visibility.Collapsed;
-                    ReadyText.Visibility = Visibility.Visible;
-                    return;
+                    return false;
                 }
 
-                RecentItems.ItemsSource = items;
+                RecentGrid.ItemsSource = items;
                 RecentSection.Visibility = Visibility.Visible;
-                ReadyText.Visibility = Visibility.Collapsed;
 
                 foreach (LibraryItemViewModel item in items)
                 {
                     Uri coverUri = item.Entry.ThumbnailUri ?? item.Entry.ImageUri;
                     if (coverUri != null)
                     {
-                        LoadCoverAsync(item, coverUri);
+                        LoadRecentCoverAsync(item, coverUri);
                     }
                 }
+
+                return true;
             }
             catch (Exception)
             {
                 RecentSection.Visibility = Visibility.Collapsed;
-                ReadyText.Visibility = Visibility.Visible;
+                return false;
             }
         }
 
-        private async Task LoadCoverAsync(LibraryItemViewModel item, Uri coverUri)
+        private async void LoadRecentCoverAsync(LibraryItemViewModel item, Uri coverUri)
         {
             item.Cover = await CoverCacheService.GetOrDownloadImageAsync(coverUri, item.Entry.Id ?? coverUri.ToString());
         }
+
+        private void RecentGrid_ItemClick(object sender, ItemClickEventArgs e)
+        {
+            LibraryItemViewModel item = (LibraryItemViewModel)e.ClickedItem;
+            Frame.Navigate(typeof(BookDetailPage), item.Entry);
+        }
+
+        // — utilidades —
 
         private void OpenSettings_Click(object sender, RoutedEventArgs e)
         {

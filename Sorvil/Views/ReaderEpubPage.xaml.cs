@@ -15,6 +15,13 @@ namespace Sorvil.Views
     // tratado como EPUB comum (as marcações extras da Kobo não atrapalham
     // renderização normal). Navegação é por capítulo inteiro (sem rolagem
     // fina rastreada) — posição salva é só o índice do capítulo atual.
+    //
+    // O EPUB só é descompactado (custo real) na primeira abertura —
+    // EpubExtractor já cacheia o resultado em BooksExtracted/, então
+    // reabrir o mesmo livro é rápido. O indicador de carregamento só
+    // desliga quando o WebView termina de renderizar o capítulo
+    // (NavigationCompleted), não antes — senão a tela fica em branco sem
+    // feedback nenhum durante o tempo de extração/renderização.
     public sealed partial class ReaderEpubPage : Page
     {
         private string _bookId;
@@ -25,6 +32,8 @@ namespace Sorvil.Views
         public ReaderEpubPage()
         {
             this.InitializeComponent();
+            ContentWebView.NavigationCompleted += ContentWebView_NavigationCompleted;
+            ContentWebView.NavigationFailed += ContentWebView_NavigationFailed;
         }
 
         protected override async void OnNavigatedTo(NavigationEventArgs e)
@@ -37,24 +46,27 @@ namespace Sorvil.Views
             }
 
             LoadingRing.IsActive = true;
+            ChapterIndicatorText.Text = "Abrindo...";
+
             try
             {
                 BookRecord record = await LibraryDataStore.GetAsync(_bookId);
                 if (record == null)
                 {
-                    ChapterIndicatorText.Text = "Livro não encontrado.";
+                    ShowLoadError("Livro não encontrado.");
                     return;
                 }
 
                 StorageFolder booksFolder = await ApplicationData.Current.LocalFolder.GetFolderAsync("Books");
                 StorageFile epubFile = await booksFolder.GetFileAsync(record.LocalFilePath);
 
+                ChapterIndicatorText.Text = "Extraindo...";
                 _manifest = await EpubExtractor.ExtractAndParseAsync(_bookId, epubFile);
                 _folderName = EpubExtractor.GetExtractedFolderName(_bookId);
 
                 if (_manifest.SpineFiles.Count == 0)
                 {
-                    ChapterIndicatorText.Text = "Não consegui ler o índice deste EPUB.";
+                    ShowLoadError("Não consegui ler o índice deste EPUB.");
                     return;
                 }
 
@@ -65,25 +77,45 @@ namespace Sorvil.Views
                     startIndex = 0;
                 }
 
+                // Não desliga o indicador aqui — ContentWebView_NavigationCompleted
+                // cuida disso quando o capítulo realmente terminar de renderizar.
                 await NavigateToChapterAsync(startIndex);
             }
             catch (Exception ex)
             {
-                ChapterIndicatorText.Text = "Erro ao abrir o EPUB: " + ex.Message;
+                ShowLoadError("Erro ao abrir o EPUB: " + ex.Message);
             }
-            finally
-            {
-                LoadingRing.IsActive = false;
-            }
+        }
+
+        private void ShowLoadError(string message)
+        {
+            LoadingRing.IsActive = false;
+            ChapterIndicatorText.Text = message;
         }
 
         private async Task NavigateToChapterAsync(int index)
         {
             _chapterIndex = index;
+            LoadingRing.IsActive = true;
+            ChapterIndicatorText.Text = "Carregando capítulo...";
             Uri uri = EpubExtractor.BuildLocalContentUri(_folderName, _manifest.SpineFiles[index]);
             ContentWebView.Navigate(uri);
-            ChapterIndicatorText.Text = "Capítulo " + (index + 1) + " / " + _manifest.SpineFiles.Count;
             await SavePositionAsync(index);
+        }
+
+        private void ContentWebView_NavigationCompleted(WebView sender, WebViewNavigationCompletedEventArgs args)
+        {
+            LoadingRing.IsActive = false;
+            if (_manifest != null)
+            {
+                ChapterIndicatorText.Text = "Capítulo " + (_chapterIndex + 1) + " / " + _manifest.SpineFiles.Count;
+            }
+        }
+
+        private void ContentWebView_NavigationFailed(object sender, WebViewNavigationFailedEventArgs args)
+        {
+            LoadingRing.IsActive = false;
+            ChapterIndicatorText.Text = "Erro ao carregar o capítulo.";
         }
 
         private async Task SavePositionAsync(int index)
