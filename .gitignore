@@ -4,3 +4,4 @@ Sorvil/AppPackages/
 AppPackages/
 *.user
 .vs/
+.claude/
