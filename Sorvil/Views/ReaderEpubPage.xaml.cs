@@ -1,6 +1,7 @@
 using Sorvil.Models;
 using Sorvil.Services;
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Windows.Storage;
 using Windows.UI.Xaml;
@@ -35,6 +36,7 @@ namespace Sorvil.Views
         private int _totalPagesInChapter = 1;
         private int? _pendingStartPage;
         private bool _chromeVisible = true;
+        private Flyout _tocFlyout;
 
         public ReaderEpubPage()
         {
@@ -171,14 +173,75 @@ namespace Sorvil.Views
             UpdateIndicator();
         }
 
+        // Progresso é uma aproximação por capítulo, não por bytes de
+        // verdade — capítulos variam muito de tamanho, então "~X%" é o
+        // mais honesto de mostrar sem pré-carregar e medir o livro inteiro
+        // (caro, e a paginação já muda sozinha se a fonte/tema mudar).
         private void UpdateIndicator()
+        {
+            if (_manifest == null || _manifest.SpineFiles.Count == 0)
+            {
+                return;
+            }
+
+            double withinChapter = _totalPagesInChapter > 0
+                ? (double)(_pageIndexInChapter + 1) / _totalPagesInChapter
+                : 0;
+            double approxPercent = (_chapterIndex + withinChapter) / _manifest.SpineFiles.Count * 100.0;
+
+            ChapterIndicatorText.Text = "Cap. " + (_chapterIndex + 1) + "/" + _manifest.SpineFiles.Count +
+                " · pág " + (_pageIndexInChapter + 1) + "/" + _totalPagesInChapter +
+                " · ~" + Math.Round(approxPercent) + "%";
+        }
+
+        // — índice (sumário) —
+
+        private void TocButton_Click(object sender, RoutedEventArgs e)
         {
             if (_manifest == null)
             {
                 return;
             }
-            ChapterIndicatorText.Text = "Capítulo " + (_chapterIndex + 1) + "/" + _manifest.SpineFiles.Count +
-                " · página " + (_pageIndexInChapter + 1) + "/" + _totalPagesInChapter;
+
+            if (_manifest.Toc.Count == 0)
+            {
+                Flyout emptyFlyout = new Flyout
+                {
+                    Content = new TextBlock
+                    {
+                        Text = "Este EPUB não tem um índice (toc.ncx) que eu consiga ler.",
+                        TextWrapping = TextWrapping.Wrap,
+                        MaxWidth = 240,
+                    },
+                };
+                emptyFlyout.ShowAt(TocButton);
+                return;
+            }
+
+            ListView list = new ListView
+            {
+                ItemsSource = _manifest.Toc,
+                DisplayMemberPath = "Title",
+                Width = 260,
+                MaxHeight = 360,
+            };
+            list.ItemClick += TocList_ItemClick;
+            list.IsItemClickEnabled = true;
+            list.SelectionMode = ListViewSelectionMode.None;
+
+            Flyout flyout = new Flyout { Content = list };
+            _tocFlyout = flyout;
+            flyout.ShowAt(TocButton);
+        }
+
+        private async void TocList_ItemClick(object sender, ItemClickEventArgs e)
+        {
+            EpubTocEntry entry = (EpubTocEntry)e.ClickedItem;
+            if (_tocFlyout != null)
+            {
+                _tocFlyout.Hide();
+            }
+            await NavigateToChapterAsync(entry.SpineIndex, null);
         }
 
         private async Task SavePositionAsync()
@@ -367,44 +430,40 @@ namespace Sorvil.Views
                     break;
             }
 
-            double pageWidth = ContentWebView.ActualWidth;
-            double pageHeight = ContentWebView.ActualHeight;
-            if (pageWidth <= 0)
-            {
-                pageWidth = 400;
-            }
-            if (pageHeight <= 0)
-            {
-                pageHeight = 600;
-            }
-
-            // column-width faz o próprio motor de renderização quebrar o
-            // texto em "páginas" do tamanho do WebView, lado a lado —
-            // GoToPageAsync desloca esse conteúdo via transform em vez de
-            // rolagem nativa (sem barra de rolagem visível, controle
-            // exato). Sem padding no body de propósito — o respiro visual
-            // já vem da margem do WebView em XAML, evitando qualquer
-            // ambiguidade de box-model com column-width.
+            // pageWidth/pageHeight são medidos de DENTRO do próprio
+            // JavaScript (document.documentElement.clientWidth/Height),
+            // não calculados em C# a partir de ContentWebView.ActualWidth
+            // — um valor vindo de fora pode não bater exatamente com o
+            // que o motor de renderização considera sua própria largura
+            // (diferença de escala/DPI entre DIPs do XAML e px CSS do
+            // WebView), o que fazia a coluna sair um pouco menor que a
+            // tela real e caber duas em vez de uma. Medindo por dentro,
+            // column-width sempre bate exato com a largura de verdade.
+            //
+            // Fundo é forçado tanto em html quanto em body, e qualquer
+            // elemento interno tem o próprio fundo zerado (background-color:
+            // transparent) — sem isso, uma div/wrapper do próprio EPUB com
+            // fundo branco embutido continua aparecendo por cima do tema
+            // escolhido.
             string script =
                 "(function() {" +
+                "var pageWidth = document.documentElement.clientWidth;" +
+                "var pageHeight = document.documentElement.clientHeight;" +
                 "var style = document.getElementById('sorvil-reader-style');" +
                 "if (!style) { style = document.createElement('style'); style.id = 'sorvil-reader-style'; document.head.appendChild(style); }" +
                 "style.innerHTML = " +
-                "'html { margin:0 !important; padding:0 !important; overflow:hidden !important; } " +
-                "body { " +
-                "margin:0 !important; padding:0 !important; " +
+                "'html { margin:0 !important; padding:0 !important; overflow:hidden !important; background-color: " + background + " !important; } ' +" +
+                "'body { margin:0 !important; padding:0 !important; " +
                 "font-size: " + fontSize + "% !important; " +
                 "background-color: " + background + " !important; " +
                 "line-height: 1.5 !important; " +
-                "height: " + (int)pageHeight + "px !important; " +
-                "column-width: " + (int)pageWidth + "px !important; " +
                 "column-gap: 0px !important; " +
                 "column-fill: auto !important; " +
                 "overflow: hidden !important; " +
-                "transition: none !important; " +
-                "} " +
-                "* { color: " + foreground + " !important; } " +
-                "img, table { max-width: 100% !important; height: auto !important; }';" +
+                "} ' +" +
+                "'* { color: " + foreground + " !important; background-color: transparent !important; } ' +" +
+                "'img, table { max-width: 100% !important; height: auto !important; background-color: initial !important; }';" +
+                "style.innerHTML += 'body { height: ' + pageHeight + 'px !important; column-width: ' + pageWidth + 'px !important; }';" +
                 "})();";
 
             await InvokeAsync(script);

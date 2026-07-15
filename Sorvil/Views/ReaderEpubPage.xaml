@@ -48,17 +48,20 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <Button x:Name="ReaderSettingsButton" Grid.Column="0" Content="Aa" Click="ReaderSettings_Click" Margin="0,0,8,0" />
-            <Button Grid.Column="1" Content="Anterior" Click="PreviousButton_Click" />
+            <Button x:Name="TocButton" Grid.Column="0" Content="Índice" Click="TocButton_Click" Margin="0,0,8,0" />
+            <Button x:Name="ReaderSettingsButton" Grid.Column="1" Content="Aa" Click="ReaderSettings_Click" Margin="0,0,8,0" />
+            <Button Grid.Column="2" Content="Anterior" Click="PreviousButton_Click" />
             <TextBlock x:Name="ChapterIndicatorText"
-                       Grid.Column="2"
+                       Grid.Column="3"
                        HorizontalAlignment="Center"
                        VerticalAlignment="Center"
+                       FontSize="12"
                        TextTrimming="CharacterEllipsis" />
-            <Button Grid.Column="3" Content="Próximo" Click="NextButton_Click" />
+            <Button Grid.Column="4" Content="Próximo" Click="NextButton_Click" />
         </Grid>
     </Grid>
 </Page>

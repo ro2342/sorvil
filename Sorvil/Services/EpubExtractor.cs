@@ -9,9 +9,16 @@ using Windows.Storage;
 
 namespace Sorvil.Services
 {
+    public sealed class EpubTocEntry
+    {
+        public string Title { get; set; }
+        public int SpineIndex { get; set; }
+    }
+
     public sealed class EpubManifest
     {
         public List<string> SpineFiles { get; set; } = new List<string>();
+        public List<EpubTocEntry> Toc { get; set; } = new List<EpubTocEntry>();
     }
 
     // Descompacta EPUB/KEPUB (mesmo container ZIP nos dois — KEPUB só tem
@@ -24,6 +31,8 @@ namespace Sorvil.Services
         private const string ExtractedFolderName = "BooksExtracted";
         private static readonly XNamespace ContainerNs = "urn:oasis:names:tc:opendocument:xmlns:container";
         private static readonly XNamespace OpfNs = "http://www.idpf.org/2007/opf";
+        private static readonly XNamespace NcxNs = "http://www.daisy.org/z3986/2005/ncx/";
+        private const string NcxMediaType = "application/x-dtbncx+xml";
 
         public static string GetExtractedFolderName(string bookId)
         {
@@ -153,6 +162,7 @@ namespace Sorvil.Services
             }
 
             Dictionary<string, string> manifestIdToHref = new Dictionary<string, string>();
+            string ncxHref = null;
             XElement manifestElement = opfDoc.Root.Element(OpfNs + "manifest");
             if (manifestElement != null)
             {
@@ -160,9 +170,14 @@ namespace Sorvil.Services
                 {
                     string id = (string)item.Attribute("id");
                     string href = (string)item.Attribute("href");
+                    string mediaType = (string)item.Attribute("media-type");
                     if (id != null && href != null)
                     {
                         manifestIdToHref[id] = href;
+                    }
+                    if (mediaType == NcxMediaType && href != null)
+                    {
+                        ncxHref = href;
                     }
                 }
             }
@@ -182,7 +197,76 @@ namespace Sorvil.Services
                 }
             }
 
+            if (ncxHref != null)
+            {
+                // Índice/sumário de verdade (títulos escritos pelo autor/
+                // editora), não uma aproximação — se não existir ou não
+                // conseguir ler, só fica sem índice (não quebra o resto).
+                try
+                {
+                    manifest.Toc = await ParseTocAsync(bookFolder, opfDirectory + ncxHref, manifest.SpineFiles);
+                }
+                catch (Exception)
+                {
+                    manifest.Toc = new List<EpubTocEntry>();
+                }
+            }
+
             return manifest;
+        }
+
+        private static async Task<List<EpubTocEntry>> ParseTocAsync(StorageFolder bookFolder, string ncxPath, List<string> spineFiles)
+        {
+            StorageFile ncxFile = await GetFileByRelativePathAsync(bookFolder, ncxPath);
+            string ncxXml = await FileIO.ReadTextAsync(ncxFile);
+            XDocument ncxDoc = XDocument.Parse(ncxXml);
+
+            string ncxDirectory = string.Empty;
+            int lastSlash = ncxPath.LastIndexOf('/');
+            if (lastSlash >= 0)
+            {
+                ncxDirectory = ncxPath.Substring(0, lastSlash + 1);
+            }
+
+            List<EpubTocEntry> toc = new List<EpubTocEntry>();
+            XElement navMap = ncxDoc.Root.Element(NcxNs + "navMap");
+            if (navMap != null)
+            {
+                CollectNavPoints(navMap, ncxDirectory, spineFiles, toc);
+            }
+            return toc;
+        }
+
+        // navPoint pode aninhar outros navPoints (sub-capítulos) — achata
+        // tudo numa lista só, mais fácil de navegar numa tela pequena de
+        // telefone do que uma árvore expansível.
+        private static void CollectNavPoints(XElement parent, string ncxDirectory, List<string> spineFiles, List<EpubTocEntry> toc)
+        {
+            foreach (XElement navPoint in parent.Elements(NcxNs + "navPoint"))
+            {
+                XElement navLabel = navPoint.Element(NcxNs + "navLabel");
+                XElement textElement = navLabel != null ? navLabel.Element(NcxNs + "text") : null;
+                XElement content = navPoint.Element(NcxNs + "content");
+                string src = content != null ? (string)content.Attribute("src") : null;
+
+                if (textElement != null && src != null)
+                {
+                    string cleanSrc = ncxDirectory + src;
+                    int hashIndex = cleanSrc.IndexOf('#');
+                    if (hashIndex >= 0)
+                    {
+                        cleanSrc = cleanSrc.Substring(0, hashIndex);
+                    }
+
+                    int spineIndex = spineFiles.IndexOf(cleanSrc);
+                    if (spineIndex >= 0)
+                    {
+                        toc.Add(new EpubTocEntry { Title = textElement.Value.Trim(), SpineIndex = spineIndex });
+                    }
+                }
+
+                CollectNavPoints(navPoint, ncxDirectory, spineFiles, toc);
+            }
         }
 
         private static string SanitizeName(string key)
