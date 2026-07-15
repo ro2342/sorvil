@@ -1,0 +1,6 @@
+# Mantém LF em todo arquivo de texto, mesmo em checkout no windows-latest
+# (o runner do 02-build-appx.yml) -- sem isso, o Git converte pra CRLF lá.
+* text=auto eol=lf
+
+*.png binary
+*.pfx binary

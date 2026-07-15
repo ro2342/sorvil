@@ -1,0 +1,56 @@
+name: 01 - Gerar certificado de assinatura (rodar uma vez)
+
+# Esse workflow NÃO roda sozinho a cada push — só quando acionado
+# manualmente pela aba "Actions" do GitHub (botão "Run workflow"). É um
+# passo único de configuração: gera um certificado autoassinado, salva a
+# chave privada (.pfx) de volta no repositório (usada por todo build
+# futuro) e disponibiliza a chave pública (.cer) como artefato pra instalar
+# uma vez no aparelho.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  generate-cert:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout do repositório
+        uses: actions/checkout@v4
+
+      - name: Gerar certificado autoassinado
+        shell: pwsh
+        run: |
+          $pfxPath = "Sorvil/Sorvil_TemporaryKey.pfx"
+          $cerPath = "sorvil-public-cert.cer"
+          $password = "Sorvil2026!"
+
+          $cert = New-SelfSignedCertificate `
+            -Type Custom `
+            -Subject "CN=RodCarvalho-Sorvil-SelfSigned" `
+            -KeyUsage DigitalSignature `
+            -FriendlyName "Sorvil - certificado de sideload" `
+            -CertStoreLocation "Cert:\CurrentUser\My" `
+            -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3","2.5.29.19={text}Subject Type:End Entity")
+
+          $securePassword = ConvertTo-SecureString -String $password -Force -AsPlainText
+          Export-PfxCertificate -Cert $cert -FilePath $pfxPath -Password $securePassword | Out-Null
+          Export-Certificate -Cert $cert -FilePath $cerPath | Out-Null
+
+          Write-Host "Certificado gerado com sucesso."
+
+      - name: Publicar o certificado público (.cer) como artefato
+        uses: actions/upload-artifact@v4
+        with:
+          name: sorvil-public-cert
+          path: sorvil-public-cert.cer
+
+      - name: Salvar a chave privada (.pfx) de volta no repositório
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Sorvil/Sorvil_TemporaryKey.pfx
+          git commit -m "chore: gerar certificado de assinatura para sideload (automático)" || echo "nada para commitar"
+          git push

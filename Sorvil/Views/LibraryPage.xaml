@@ -1,0 +1,17 @@
+<Page
+    x:Class="Sorvil.Views.LibraryPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+
+    <StackPanel Padding="20,24,20,20">
+        <TextBlock Text="Biblioteca" Style="{StaticResource TitleTextBlockStyle}" />
+        <TextBlock Text="O catálogo do seu Calibre-Web (com capas, busca e paginação) aparece aqui."
+                   Style="{StaticResource BodyTextBlockStyle}"
+                   TextWrapping="Wrap"
+                   Margin="0,12,0,0" />
+    </StackPanel>
+</Page>

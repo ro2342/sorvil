@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:mp="http://schemas.microsoft.com/appx/2014/phone/manifest"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  IgnorableNamespaces="uap mp">
+
+  <Identity
+    Name="RodCarvalho.Sorvil"
+    Publisher="CN=RodCarvalho-Sorvil-SelfSigned"
+    Version="0.1.0.0" />
+
+  <mp:PhoneIdentity PhoneProductId="b689e2e0-a9b1-45a0-971c-ab3ea7430e59" PhonePublisherId="00000000-0000-0000-0000-000000000000" />
+
+  <Properties>
+    <DisplayName>Sorvil</DisplayName>
+    <PublisherDisplayName>Rod Carvalho</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <!--
+      MinVersion/MaxVersionTested aqui são placeholders: o MSBuild reescreve
+      esses dois valores automaticamente a partir de TargetPlatformMinVersion
+      e TargetPlatformVersion do arquivo .csproj no momento do build.
+    -->
+    <TargetDeviceFamily Name="Windows.Universal" MinVersion="10.0.14393.0" MaxVersionTested="10.0.17763.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="pt-BR" />
+  </Resources>
+
+  <Applications>
+    <Application Id="App" Executable="$targetnametoken$.exe" EntryPoint="Sorvil.App">
+      <uap:VisualElements
+        DisplayName="Sorvil"
+        Description="Sorvil — leitor de ebooks conectado ao seu Calibre-Web, com capas na tela inicial."
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png">
+        <uap:DefaultTile
+          Wide310x150Logo="Assets\Wide310x150Logo.png"
+          Square71x71Logo="Assets\Square71x71Logo.png">
+          <uap:ShowNameOnTiles>
+            <uap:ShowOn Tile="square150x150Logo" />
+            <uap:ShowOn Tile="wide310x150Logo" />
+          </uap:ShowNameOnTiles>
+        </uap:DefaultTile>
+        <uap:SplashScreen Image="Assets\SplashScreen.png" BackgroundColor="transparent" />
+      </uap:VisualElements>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <Capability Name="internetClient" />
+    <!--
+      Sem isso, o UWP bloqueia por padrão qualquer requisição pra um IP de
+      rede local/privada (ex.: 192.168.x.x) — e é exatamente onde a maioria
+      dos servidores Calibre-Web caseiros mora. internetClient sozinho só
+      cobre a zona "Internet" do Windows, não a zona "Rede privada".
+    -->
+    <Capability Name="privateNetworkClientServer" />
+  </Capabilities>
+
+</Package>

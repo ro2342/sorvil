@@ -1,0 +1,6 @@
+Sorvil/bin/
+Sorvil/obj/
+Sorvil/AppPackages/
+AppPackages/
+*.user
+.vs/

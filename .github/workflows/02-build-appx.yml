@@ -1,0 +1,122 @@
+name: 02 - Build do appxbundle (Windows 10 Mobile)
+
+# Roda automaticamente a cada push que mexer em Sorvil/, e também pode ser
+# disparado manualmente pela aba Actions. Gera o .appxbundle pronto pra
+# sideload — disponível como artefato do workflow e publicado numa página
+# de download simples no GitHub Pages.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Sorvil/**"
+      - "site/**"
+      - ".github/workflows/02-build-appx.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout do repositório
+        uses: actions/checkout@v4
+
+      - name: Verificar se o certificado de sideload já existe
+        shell: pwsh
+        run: |
+          $pfx = "Sorvil/Sorvil_TemporaryKey.pfx"
+          if (-not (Test-Path $pfx)) {
+            Write-Error "Certificado não encontrado em $pfx. Rode primeiro o workflow '01 - Gerar certificado de assinatura' na aba Actions (botão Run workflow), espere terminar, e então rode este de novo."
+            exit 1
+          }
+
+      - name: Configurar MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Instalar o Windows 10 SDK 17763 (metadados do UWP)
+        uses: GuillaumeFalourd/setup-windows10-sdk-action@v2.4
+        with:
+          sdk-version: 17763
+
+      - name: Restaurar pacotes NuGet e compilar o appxbundle
+        shell: cmd
+        run: |
+          msbuild Sorvil\Sorvil.csproj ^
+            /restore ^
+            /p:Configuration=Release ^
+            /p:Platform=ARM ^
+            /p:AppxBundlePlatforms=ARM ^
+            /p:AppxBundle=Always ^
+            /p:UapAppxPackageBuildMode=SideloadOnly ^
+            /p:UseDotNetNativeToolchain=true ^
+            /p:AppxPackageSigningEnabled=true ^
+            /p:PackageCertificateKeyFile=Sorvil_TemporaryKey.pfx ^
+            /p:PackageCertificatePassword=Sorvil2026! ^
+            /p:AppxPackageDir=%CD%\AppPackages\ ^
+            /verbosity:minimal
+
+      - name: Publicar o appxbundle como artefato
+        uses: actions/upload-artifact@v4
+        with:
+          name: sorvil-appxbundle
+          path: AppPackages/**
+          if-no-files-found: error
+
+      - name: Publicar o appxbundle e o version.json em app/ (link estável pro GitHub Pages)
+        shell: pwsh
+        run: |
+          $bundle = Get-ChildItem -Path AppPackages -Recurse -Filter *.appxbundle | Select-Object -First 1
+          if (-not $bundle) {
+            Write-Error "Nenhum .appxbundle encontrado em AppPackages."
+            exit 1
+          }
+          New-Item -ItemType Directory -Force -Path app | Out-Null
+          Copy-Item $bundle.FullName -Destination "app/app.appxbundle" -Force
+
+          [xml]$manifest = Get-Content "Sorvil/Package.appxmanifest"
+          $version = $manifest.Package.Identity.Version
+          $builtAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+          $versionJson = @{ version = $version; builtAt = $builtAt } | ConvertTo-Json -Compress
+          Set-Content -Path "app/version.json" -Value $versionJson -NoNewline
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add app/app.appxbundle app/version.json
+          git diff --cached --quiet -- app/app.appxbundle app/version.json
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "app.appxbundle e version.json já estão atualizados, nada para commitar."
+          } else {
+            git commit -m "chore: atualiza app/app.appxbundle e app/version.json (automático)"
+            git push
+          }
+
+      - name: Preparar o conteúdo do GitHub Pages (página de download na raiz)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path pages-dist | Out-Null
+          Copy-Item -Path "site/*" -Destination "pages-dist" -Recurse -Force
+          Copy-Item -Path "app/app.appxbundle" -Destination "pages-dist/app.appxbundle" -Force
+          Copy-Item -Path "app/version.json" -Destination "pages-dist/version.json" -Force
+
+      - name: Configurar o GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Empacotar o site (download) como artefato do Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: pages-dist
+
+      - name: Publicar no GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
