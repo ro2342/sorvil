@@ -15,6 +15,15 @@ namespace Sorvil
     // decide mostrar um aviso levando pra aba Servidor de Ajustes.
     sealed partial class App : Application
     {
+        // Frame raiz da janela — exposto pra páginas de leitura poderem
+        // navegar por cima do shell inteiro (MainPage, com seu HeaderBar
+        // verde fixo), em vez de dentro do ContentFrame aninhado do
+        // MainPage. Sem isso, o leitor ficava confinado numa área menor
+        // (abaixo do HeaderBar), o que parecia "não tela cheia"/"borda
+        // preta" e deixava o cabeçalho do shell sempre visível durante a
+        // leitura.
+        public static Frame RootFrame { get; private set; }
+
         public App()
         {
             this.InitializeComponent();
@@ -47,6 +56,8 @@ namespace Sorvil
                 Window.Current.Content = rootFrame;
                 ThemeModeService.Apply(ThemePreferenceStore.Get());
             }
+
+            RootFrame = rootFrame;
 
             if (e.PrelaunchActivated == false)
             {

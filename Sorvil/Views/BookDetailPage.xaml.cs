@@ -146,13 +146,17 @@ namespace Sorvil.Views
 
         private void OpenReader(string recordId, string extension)
         {
+            // Navega no Frame raiz da janela (App.RootFrame), não neste
+            // Frame aninhado dentro do shell — o leitor precisa tomar
+            // conta da tela inteira, por cima do HeaderBar/SplitView do
+            // MainPage, não confinado abaixo dele.
             if (extension == "pdf")
             {
-                Frame.Navigate(typeof(ReaderPdfPage), recordId);
+                App.RootFrame.Navigate(typeof(ReaderPdfPage), recordId);
             }
             else if (extension == "epub" || extension == "kepub.epub")
             {
-                Frame.Navigate(typeof(ReaderEpubPage), recordId);
+                App.RootFrame.Navigate(typeof(ReaderEpubPage), recordId);
             }
             else
             {

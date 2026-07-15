@@ -4,6 +4,8 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Windows.Storage;
+using Windows.UI;
+using Windows.UI.Core;
 using Windows.UI.Text;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
@@ -38,7 +40,6 @@ namespace Sorvil.Views
         private int _totalPagesInChapter = 1;
         private int? _pendingStartPage;
         private bool _chromeVisible;
-        private Flyout _tocFlyout;
         private BookRecord _record;
         private double _manipulationTranslationX;
         private double _manipulationScale = 1.0;
@@ -48,6 +49,40 @@ namespace Sorvil.Views
             this.InitializeComponent();
             ContentWebView.NavigationCompleted += ContentWebView_NavigationCompleted;
             ContentWebView.NavigationFailed += ContentWebView_NavigationFailed;
+            SystemNavigationManager.GetForCurrentView().BackRequested += OnBackRequested;
+        }
+
+        // Esta página navega no Frame raiz da janela (App.RootFrame), não
+        // no ContentFrame aninhado do MainPage — então é dela mesma (e não
+        // do MainPage) cuidar do botão Voltar do sistema enquanto estiver
+        // em tela. A guarda por this.Frame.Content evita agir quando essa
+        // inscrição antiga ainda existe mas a página não está mais visível
+        // (ex.: já saiu do leitor e voltou pro MainPage).
+        private void OnBackRequested(object sender, BackRequestedEventArgs e)
+        {
+            if (this.Frame.Content != this)
+            {
+                return;
+            }
+
+            // Segue a mesma ordem "de dentro pra fora" do mockup: fecha o
+            // índice de capítulos se estiver aberto, senão esconde a
+            // barra de leitura se estiver visível, só senão sai do leitor.
+            if (ChapterDrawer.Visibility == Visibility.Visible)
+            {
+                e.Handled = true;
+                CloseChapterDrawer();
+                return;
+            }
+            if (_chromeVisible)
+            {
+                e.Handled = true;
+                ToggleChrome();
+                return;
+            }
+
+            e.Handled = true;
+            App.RootFrame.GoBack();
         }
 
         protected override async void OnNavigatedTo(NavigationEventArgs e)
@@ -71,8 +106,9 @@ namespace Sorvil.Views
                     return;
                 }
 
-                BookTitleText.Text = _record.Title;
-                BookAuthorText.Text = _record.Author;
+                HeaderBookTitleText.Text = _record.Title;
+                DrawerBookTitleText.Text = _record.Title;
+                BottomCaptionBookText.Text = _record.Title;
                 ApplyDimLevel();
                 UpdateGestureMode();
 
@@ -88,6 +124,8 @@ namespace Sorvil.Views
                     ShowLoadError("Não consegui ler o índice deste EPUB.");
                     return;
                 }
+
+                PopulateChapterDrawer();
 
                 int startChapter = 0;
                 int startPage = 0;
@@ -198,94 +236,66 @@ namespace Sorvil.Views
                 ? (double)(_pageIndexInChapter + 1) / _totalPagesInChapter
                 : 0;
             double approxPercent = (_chapterIndex + withinChapter) / _manifest.SpineFiles.Count * 100.0;
-
-            ChapterIndicatorText.Text = "Cap. " + (_chapterIndex + 1) + "/" + _manifest.SpineFiles.Count +
-                " · pág " + (_pageIndexInChapter + 1) + "/" + _totalPagesInChapter +
-                " · ~" + Math.Round(approxPercent) + "%";
             ReadingProgressBar.Value = approxPercent;
+
+            int currentTocIndex = FindCurrentTocIndex();
+            BottomCaptionChapterText.Text = currentTocIndex >= 0
+                ? _manifest.Toc[currentTocIndex].Title
+                : "Capítulo " + (_chapterIndex + 1);
         }
 
-        // — índice (sumário) —
+        // — índice (sumário): painel de tela cheia, não um Flyout pequeno —
 
-        private void TocButton_Click(object sender, RoutedEventArgs e)
+        private void PopulateChapterDrawer()
         {
-            if (_manifest == null)
-            {
-                return;
-            }
-
-            StackPanel panel = new StackPanel { Width = 260 };
-            panel.Children.Add(new TextBlock
-            {
-                Text = _record != null ? _record.Title : "Índice",
-                FontWeight = FontWeights.SemiBold,
-                TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(16, 12, 16, 8),
-            });
-
-            if (_manifest.Toc.Count == 0)
-            {
-                panel.Children.Add(new TextBlock
-                {
-                    Text = "Este EPUB não tem um índice (toc.ncx) que eu consiga ler.",
-                    TextWrapping = TextWrapping.Wrap,
-                    MaxWidth = 228,
-                    Margin = new Thickness(16, 0, 16, 12),
-                });
-                Flyout emptyFlyout = new Flyout { Content = panel };
-                emptyFlyout.ShowAt(TocButton);
-                return;
-            }
-
-            // "Capítulo atual" é a entrada do índice com o maior SpineIndex
-            // que ainda não passou do capítulo aberto — o NCX não tem uma
-            // entrada pra cada arquivo do spine (um capítulo de verdade às
-            // vezes vira vários arquivos internos), então é o "mais próximo
-            // por baixo" que representa onde a leitura está.
-            int currentTocIndex = FindCurrentTocIndex();
-            SolidColorBrush accent = ThemeHelper.AccentBrush();
-
-            ListView list = new ListView
-            {
-                MaxHeight = 320,
-                SelectionMode = ListViewSelectionMode.None,
-                IsItemClickEnabled = true,
-            };
-            ListViewItem currentContainer = null;
+            ChapterDrawerList.Items.Clear();
             for (int i = 0; i < _manifest.Toc.Count; i++)
             {
                 EpubTocEntry entry = _manifest.Toc[i];
-                bool isCurrent = i == currentTocIndex;
                 TextBlock text = new TextBlock
                 {
                     Text = entry.Title,
                     TextWrapping = TextWrapping.Wrap,
-                    FontWeight = isCurrent ? FontWeights.Bold : FontWeights.Normal,
+                    Foreground = new SolidColorBrush(Colors.White),
+                    Padding = new Thickness(2),
                 };
-                if (isCurrent)
+                ListViewItem container = new ListViewItem
                 {
-                    text.Foreground = accent;
-                }
-                ListViewItem container = new ListViewItem { Content = text, Tag = entry };
-                if (isCurrent)
-                {
-                    currentContainer = container;
-                }
-                list.Items.Add(container);
+                    Content = text,
+                    Tag = entry,
+                    Padding = new Thickness(18, 16, 18, 16),
+                    Background = new SolidColorBrush(Colors.Transparent),
+                };
+                ChapterDrawerList.Items.Add(container);
             }
-            list.ItemClick += TocList_ItemClick;
-            panel.Children.Add(list);
+            HighlightCurrentChapterInDrawer();
+        }
 
-            Flyout flyout = new Flyout { Content = panel };
-            _tocFlyout = flyout;
-            flyout.ShowAt(TocButton);
+        private void HighlightCurrentChapterInDrawer()
+        {
+            int currentTocIndex = FindCurrentTocIndex();
+            SolidColorBrush activeBackground = new SolidColorBrush(Color.FromArgb(0xFF, 0x4C, 0x85, 0x24));
+            SolidColorBrush inactiveBackground = new SolidColorBrush(Colors.Transparent);
 
-            if (currentContainer != null)
+            for (int i = 0; i < ChapterDrawerList.Items.Count; i++)
             {
-                list.ScrollIntoView(currentContainer);
+                ListViewItem container = (ListViewItem)ChapterDrawerList.Items[i];
+                bool isCurrent = i == currentTocIndex;
+                container.Background = isCurrent ? activeBackground : inactiveBackground;
+                TextBlock text = (TextBlock)container.Content;
+                text.FontWeight = isCurrent ? FontWeights.Bold : FontWeights.Normal;
+                if (isCurrent)
+                {
+                    ChapterDrawerList.ScrollIntoView(container);
+                }
             }
         }
 
+        // "Capítulo atual" é a entrada do índice com o maior SpineIndex que
+        // ainda não passou do capítulo aberto — o NCX não tem uma entrada
+        // pra cada arquivo do spine (um capítulo de verdade às vezes vira
+        // vários arquivos internos), então é o "mais próximo por baixo"
+        // que representa onde a leitura está.
         private int FindCurrentTocIndex()
         {
             int best = -1;
@@ -302,14 +312,37 @@ namespace Sorvil.Views
             return best;
         }
 
-        private async void TocList_ItemClick(object sender, ItemClickEventArgs e)
+        private void ChapterDrawerButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (ChapterDrawer.Visibility == Visibility.Visible)
+            {
+                CloseChapterDrawer();
+            }
+            else
+            {
+                OpenChapterDrawer();
+            }
+        }
+
+        private void OpenChapterDrawer()
+        {
+            if (_manifest != null)
+            {
+                HighlightCurrentChapterInDrawer();
+            }
+            ChapterDrawer.Visibility = Visibility.Visible;
+        }
+
+        private void CloseChapterDrawer()
+        {
+            ChapterDrawer.Visibility = Visibility.Collapsed;
+        }
+
+        private async void ChapterDrawerList_ItemClick(object sender, ItemClickEventArgs e)
         {
             ListViewItem clickedContainer = e.ClickedItem as ListViewItem;
             EpubTocEntry entry = clickedContainer != null ? clickedContainer.Tag as EpubTocEntry : null;
-            if (_tocFlyout != null)
-            {
-                _tocFlyout.Hide();
-            }
+            CloseChapterDrawer();
             if (entry != null)
             {
                 await NavigateToChapterAsync(entry.SpineIndex, null);
@@ -461,6 +494,16 @@ namespace Sorvil.Views
 
         private void ToggleChrome_Tapped(object sender, TappedRoutedEventArgs e)
         {
+            ToggleChrome();
+        }
+
+        private void CollapseBar_Click(object sender, RoutedEventArgs e)
+        {
+            ToggleChrome();
+        }
+
+        private void ToggleChrome()
+        {
             // Opacity em vez de Visibility.Collapsed — a linha continua
             // reservada no layout, então o WebView não muda de tamanho (o
             // que invalidaria a paginação) só por causa do toque no meio.
@@ -473,7 +516,7 @@ namespace Sorvil.Views
 
         private void BackToHome_Click(object sender, RoutedEventArgs e)
         {
-            MainPage.Current.NavigateToTab(typeof(HomePage));
+            App.RootFrame.GoBack();
         }
 
         private void SearchButton_Click(object sender, RoutedEventArgs e)
@@ -551,10 +594,22 @@ namespace Sorvil.Views
             }
         }
 
+        // Margem de leitura em px CSS — o mesmo valor entra tanto no CSS
+        // injetado (padding do body) quanto nas contas de paginação/
+        // transform abaixo, senão o passo de cada "virada de página" fica
+        // dessincronizado da largura real de cada coluna e o texto
+        // desalinha aos poucos a cada capítulo.
+        private const int ReadingMarginPx = 18;
+
         private async Task<int> GetTotalPagesAsync()
         {
-            string result = await InvokeAsync(
-                "(function() { return Math.max(1, Math.ceil(document.body.scrollWidth / document.documentElement.clientWidth)); })();");
+            string script =
+                "(function() {" +
+                "var stepWidth = document.documentElement.clientWidth - (" + ReadingMarginPx + " * 2);" +
+                "var usableScroll = document.body.scrollWidth - (" + ReadingMarginPx + " * 2);" +
+                "return Math.max(1, Math.ceil(usableScroll / stepWidth));" +
+                "})();";
+            string result = await InvokeAsync(script);
             int pages;
             return int.TryParse(result, out pages) && pages > 0 ? pages : 1;
         }
@@ -563,8 +618,10 @@ namespace Sorvil.Views
         {
             _pageIndexInChapter = pageIndex;
             string script =
-                "(function() { document.body.style.transform = 'translateX(-' + (" + pageIndex +
-                " * document.documentElement.clientWidth) + 'px)'; })();";
+                "(function() {" +
+                "var stepWidth = document.documentElement.clientWidth - (" + ReadingMarginPx + " * 2);" +
+                "document.body.style.transform = 'translateX(-' + (" + pageIndex + " * stepWidth) + 'px)';" +
+                "})();";
             await InvokeAsync(script);
         }
 
@@ -640,7 +697,7 @@ namespace Sorvil.Views
         private async Task AdjustFontSizeAsync(int delta)
         {
             int current = ReaderPreferenceStore.GetFontSizePercent();
-            int updated = Math.Max(70, Math.Min(250, current + delta));
+            int updated = Math.Max(70, Math.Min(350, current + delta));
             ReaderPreferenceStore.SetFontSizePercent(updated);
             await ReapplyStyleAndRepaginateAsync();
         }
@@ -690,6 +747,15 @@ namespace Sorvil.Views
             // tela real e caber duas em vez de uma. Medindo por dentro,
             // column-width sempre bate exato com a largura de verdade.
             //
+            // A margem de leitura (ReadingMarginPx) vira padding do body,
+            // não Margin do WebView no XAML — um Margin ali deixava a cor
+            // de fundo da Page (não a do tema de leitura escolhido)
+            // visível como uma borda ao redor do texto, parecendo o livro
+            // "dentro de um iframe" menor que a tela. column-width já sai
+            // descontando essa margem duas vezes (esquerda+direita) pra
+            // bater com o mesmo cálculo usado em GetTotalPagesAsync/
+            // GoToPageAsync.
+            //
             // Fundo é forçado tanto em html quanto em body, e qualquer
             // elemento interno tem o próprio fundo zerado (background-color:
             // transparent) — sem isso, uma div/wrapper do próprio EPUB com
@@ -699,11 +765,12 @@ namespace Sorvil.Views
                 "(function() {" +
                 "var pageWidth = document.documentElement.clientWidth;" +
                 "var pageHeight = document.documentElement.clientHeight;" +
+                "var margin = " + ReadingMarginPx + ";" +
                 "var style = document.getElementById('sorvil-reader-style');" +
                 "if (!style) { style = document.createElement('style'); style.id = 'sorvil-reader-style'; document.head.appendChild(style); }" +
                 "style.innerHTML = " +
                 "'html { margin:0 !important; padding:0 !important; overflow:hidden !important; background-color: " + background + " !important; } ' +" +
-                "'body { margin:0 !important; padding:0 !important; " +
+                "'body { margin:0 !important; " +
                 "font-size: " + fontSize + "% !important; " +
                 "background-color: " + background + " !important; " +
                 "line-height: 1.5 !important; " +
@@ -713,7 +780,7 @@ namespace Sorvil.Views
                 "} ' +" +
                 "'* { color: " + foreground + " !important; background-color: transparent !important; } ' +" +
                 "'img, table { max-width: 100% !important; height: auto !important; background-color: initial !important; }';" +
-                "style.innerHTML += 'body { height: ' + pageHeight + 'px !important; column-width: ' + pageWidth + 'px !important; }';" +
+                "style.innerHTML += 'body { height: ' + pageHeight + 'px !important; padding: 0 ' + margin + 'px !important; column-width: ' + (pageWidth - margin * 2) + 'px !important; }';" +
                 "})();";
 
             await InvokeAsync(script);

@@ -17,7 +17,7 @@ namespace Sorvil.Services
         public static int GetFontSizePercent()
         {
             object value = ApplicationData.Current.LocalSettings.Values[FontSizeKey];
-            return value is int percent ? percent : 130;
+            return value is int percent ? percent : 180;
         }
 
         public static void SetFontSizePercent(int percent)

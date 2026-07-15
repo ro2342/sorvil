@@ -7,14 +7,62 @@
     mc:Ignorable="d"
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
 
+    <Page.Resources>
+        <SolidColorBrush x:Key="SorvilGreenBrush" Color="#FF5DA130" />
+        <SolidColorBrush x:Key="SorvilGreenDarkBrush" Color="#FF4C8524" />
+        <SolidColorBrush x:Key="SorvilCharcoalBrush" Color="#FF2C2C2C" />
+
+        <!-- Botão liso (sem chrome arredondado nem fundo no estado normal)
+             pros ícones da barra verde e das barras de leitura — o app já
+             usa esse padrão de template simplificado no MainPage. -->
+        <Style x:Key="ReaderIconButtonStyle" TargetType="Button">
+            <Setter Property="Padding" Value="10" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Grid Background="{TemplateBinding Background}">
+                            <ContentPresenter Padding="{TemplateBinding Padding}"
+                                              Content="{TemplateBinding Content}"
+                                              HorizontalAlignment="Center"
+                                              VerticalAlignment="Center" />
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Page.Resources>
+
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <Grid Grid.Row="0">
-            <WebView x:Name="ContentWebView" Margin="16,10" SizeChanged="ContentWebView_SizeChanged" />
+        <!-- Cabeçalho verde, sempre visível (não some ao tocar) — igual
+             ao apphdr da página de livro no mockup: hambúrguer abre o
+             índice de capítulos, título do livro ao lado. -->
+        <Grid Grid.Row="0" Background="{StaticResource SorvilGreenBrush}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Button Grid.Column="0" Click="ChapterDrawerButton_Click" Style="{StaticResource ReaderIconButtonStyle}">
+                <FontIcon Glyph="&#xE700;" Foreground="White" FontSize="20" />
+            </Button>
+            <TextBlock x:Name="HeaderBookTitleText"
+                       Grid.Column="1"
+                       Foreground="White"
+                       FontWeight="SemiBold"
+                       FontSize="16"
+                       VerticalAlignment="Center"
+                       TextTrimming="CharacterEllipsis"
+                       Margin="4,0,16,0" />
+        </Grid>
+
+        <Grid Grid.Row="1">
+            <WebView x:Name="ContentWebView" SizeChanged="ContentWebView_SizeChanged" />
 
             <!-- "Brilho": um overlay preto semitransparente por cima de
                  tudo, com a Opacity controlada por um slider — não mexe
@@ -24,7 +72,7 @@
             <Border x:Name="DimOverlay" Background="Black" Opacity="0" IsHitTestVisible="False" />
 
             <!-- Zonas de toque por cima do WebView: esquerda volta página,
-                 direita avança, meio alterna a barra de cima/baixo — o
+                 direita avança, meio alterna as barras de leitura — o
                  mesmo padrão de Kindle/Freda. Ficam por cima de propósito:
                  assim o toque nunca vira rolagem/seleção nativa do
                  WebView, só controla a paginação via script. -->
@@ -44,12 +92,13 @@
                 <Border Grid.Column="2" Background="Transparent" Tapped="NextZone_Tapped" />
             </Grid>
 
-            <!-- Barra de cima: some por padrão (leitura imersiva, igual
-                 Kindle/News) — só aparece ao tocar no meio da tela. -->
+            <!-- Barra de cima (some por padrão, aparece ao tocar no meio):
+                 Voltar ao Início à esquerda, Aa/brilho/gestos à direita —
+                 igual ao toolbar-top do mockup. -->
             <Grid x:Name="TopBar"
                   VerticalAlignment="Top"
                   Background="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}"
-                  Padding="8,6"
+                  Padding="8,8"
                   Opacity="0"
                   IsHitTestVisible="False">
                 <Grid.ColumnDefinitions>
@@ -58,13 +107,18 @@
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <Button Grid.Column="0" Content="Voltar ao Início" Click="BackToHome_Click" HorizontalAlignment="Left" />
-                <Button x:Name="TypographyButton" Grid.Column="1" Content="Aa" Click="TypographyButton_Click" Margin="4,0" />
-                <Button x:Name="BrightnessButton" Grid.Column="2" Click="BrightnessButton_Click" Margin="4,0">
-                    <FontIcon Glyph="&#xE706;" FontSize="16" />
+                <Button Grid.Column="0" Click="BackToHome_Click" HorizontalAlignment="Left" Style="{StaticResource ReaderIconButtonStyle}">
+                    <StackPanel Orientation="Horizontal">
+                        <FontIcon Glyph="&#xE80F;" FontSize="14" Margin="0,0,8,0" />
+                        <TextBlock Text="Voltar ao Início" FontSize="13" VerticalAlignment="Center" />
+                    </StackPanel>
                 </Button>
-                <Button x:Name="GestureSettingsButton" Grid.Column="3" Click="GestureSettingsButton_Click">
-                    <FontIcon Glyph="&#xE713;" FontSize="16" />
+                <Button x:Name="TypographyButton" Grid.Column="1" Content="Aa" Click="TypographyButton_Click" FontWeight="Bold" Style="{StaticResource ReaderIconButtonStyle}" />
+                <Button x:Name="BrightnessButton" Grid.Column="2" Click="BrightnessButton_Click" Style="{StaticResource ReaderIconButtonStyle}">
+                    <FontIcon Glyph="&#xE706;" FontSize="17" />
+                </Button>
+                <Button x:Name="GestureSettingsButton" Grid.Column="3" Click="GestureSettingsButton_Click" Style="{StaticResource ReaderIconButtonStyle}">
+                    <FontIcon Glyph="&#xE713;" FontSize="17" />
                 </Button>
             </Grid>
         </Grid>
@@ -76,46 +130,85 @@
                       HorizontalAlignment="Center"
                       VerticalAlignment="Center" />
 
-        <!-- Barra de baixo: título/autor do livro, navegação de capítulo
-             (anterior/índice/nome do capítulo/busca/próximo) e uma barra
-             de progresso fina — também some por padrão. -->
+        <!-- Barra de baixo (some por padrão, aparece ao tocar no meio):
+             fileira de ícones (fechar barra / índice / busca / próximo
+             capítulo) + legenda com título do livro e capítulo atual —
+             igual ao toolbar-bottom do mockup. -->
         <StackPanel x:Name="BottomBar"
                     Grid.Row="1"
+                    VerticalAlignment="Bottom"
                     Background="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}"
                     Opacity="0"
                     IsHitTestVisible="False">
-            <StackPanel Padding="12,8,12,4">
-                <TextBlock x:Name="BookTitleText" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                <TextBlock x:Name="BookAuthorText" Style="{StaticResource CaptionTextBlockStyle}" TextTrimming="CharacterEllipsis" />
-            </StackPanel>
-            <Grid Padding="12,0,12,4">
+            <Grid Padding="4,8,4,0">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
-                <Button Grid.Column="0" Click="PreviousButton_Click" Margin="0,0,4,0">
-                    <FontIcon Glyph="&#xE76B;" FontSize="14" />
+                <Button Grid.Column="0" Click="CollapseBar_Click" Style="{StaticResource ReaderIconButtonStyle}" HorizontalAlignment="Center">
+                    <FontIcon Glyph="&#xE76B;" FontSize="16" />
                 </Button>
-                <Button x:Name="TocButton" Grid.Column="1" Click="TocButton_Click" Margin="0,0,4,0">
-                    <FontIcon Glyph="&#xE8FD;" FontSize="14" />
+                <Button x:Name="TocButton" Grid.Column="1" Click="ChapterDrawerButton_Click" Style="{StaticResource ReaderIconButtonStyle}" HorizontalAlignment="Center">
+                    <FontIcon Glyph="&#xE700;" FontSize="16" />
                 </Button>
-                <TextBlock x:Name="ChapterIndicatorText"
-                           Grid.Column="2"
-                           HorizontalAlignment="Center"
-                           VerticalAlignment="Center"
-                           FontSize="12"
-                           TextTrimming="CharacterEllipsis" />
-                <Button Grid.Column="3" Click="SearchButton_Click" Margin="4,0">
-                    <FontIcon Glyph="&#xE721;" FontSize="14" />
+                <Button Grid.Column="2" Click="SearchButton_Click" Style="{StaticResource ReaderIconButtonStyle}" HorizontalAlignment="Center">
+                    <FontIcon Glyph="&#xE721;" FontSize="16" />
                 </Button>
-                <Button Grid.Column="4" Click="NextButton_Click">
-                    <FontIcon Glyph="&#xE76C;" FontSize="14" />
+                <Button Grid.Column="3" Click="NextButton_Click" Style="{StaticResource ReaderIconButtonStyle}" HorizontalAlignment="Center">
+                    <FontIcon Glyph="&#xE76C;" FontSize="16" />
                 </Button>
             </Grid>
-            <ProgressBar x:Name="ReadingProgressBar" Minimum="0" Maximum="100" Height="4" />
+            <StackPanel HorizontalAlignment="Center" Margin="0,2,0,8">
+                <TextBlock x:Name="BottomCaptionBookText"
+                           FontSize="11"
+                           Opacity="0.7"
+                           HorizontalAlignment="Center"
+                           TextTrimming="CharacterEllipsis"
+                           MaxWidth="280" />
+                <TextBlock x:Name="BottomCaptionChapterText"
+                           FontSize="12"
+                           FontWeight="SemiBold"
+                           HorizontalAlignment="Center"
+                           TextTrimming="CharacterEllipsis"
+                           MaxWidth="280"
+                           Margin="0,1,0,0" />
+            </StackPanel>
+            <ProgressBar x:Name="ReadingProgressBar" Minimum="0" Maximum="100" Height="3" />
         </StackPanel>
+
+        <!-- Índice de capítulos: painel de tela cheia (não um Flyout
+             pequeno) que desliza por cima de tudo, igual ao chapter-drawer
+             do mockup — cabeçalho verde igual ao da página de leitura +
+             lista escura com o capítulo atual destacado. -->
+        <Grid x:Name="ChapterDrawer" Grid.RowSpan="2" Background="{StaticResource SorvilCharcoalBrush}" Visibility="Collapsed">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <Grid Grid.Row="0" Background="{StaticResource SorvilGreenBrush}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Button Grid.Column="0" Click="ChapterDrawerButton_Click" Style="{StaticResource ReaderIconButtonStyle}">
+                    <FontIcon Glyph="&#xE700;" Foreground="White" FontSize="20" />
+                </Button>
+                <TextBlock x:Name="DrawerBookTitleText"
+                           Grid.Column="1"
+                           Foreground="White"
+                           FontWeight="SemiBold"
+                           FontSize="16"
+                           VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis"
+                           Margin="4,0,16,0" />
+            </Grid>
+            <ListView x:Name="ChapterDrawerList"
+                      Grid.Row="1"
+                      SelectionMode="None"
+                      IsItemClickEnabled="True"
+                      ItemClick="ChapterDrawerList_ItemClick" />
+        </Grid>
     </Grid>
 </Page>

@@ -88,7 +88,7 @@ namespace Sorvil.Views
         private void ContinuingGrid_ItemClick(object sender, ItemClickEventArgs e)
         {
             BookRecordItemViewModel item = (BookRecordItemViewModel)e.ClickedItem;
-            ReaderNavigation.TryOpen(Frame, item.Record);
+            ReaderNavigation.TryOpen(item.Record);
         }
 
         // — Adicionados recentemente (catálogo OPDS, /opds/new) —

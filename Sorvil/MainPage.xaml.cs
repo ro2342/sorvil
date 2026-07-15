@@ -179,6 +179,16 @@ namespace Sorvil
 
         private void OnBackRequested(object sender, BackRequestedEventArgs e)
         {
+            // MainPage continua inscrita nesse evento mesmo depois de o
+            // leitor assumir a tela inteira no Frame raiz (RootFrame.Navigate
+            // não desliga essa inscrição) — sem essa guarda, o botão Voltar
+            // do sistema acabaria fechando o painel/navegando o ContentFrame
+            // de um MainPage que nem está mais visível.
+            if (this.Frame.Content != this)
+            {
+                return;
+            }
+
             if (NavSplitView.IsPaneOpen)
             {
                 e.Handled = true;

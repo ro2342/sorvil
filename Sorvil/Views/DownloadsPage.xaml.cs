@@ -59,7 +59,7 @@ namespace Sorvil.Views
         private void BooksList_ItemClick(object sender, ItemClickEventArgs e)
         {
             BookRecordItemViewModel item = (BookRecordItemViewModel)e.ClickedItem;
-            if (ReaderNavigation.TryOpen(Frame, item.Record))
+            if (ReaderNavigation.TryOpen(item.Record))
             {
                 return;
             }

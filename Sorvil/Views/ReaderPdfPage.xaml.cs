@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Windows.Data.Pdf;
 using Windows.Storage;
 using Windows.Storage.Streams;
+using Windows.UI.Core;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Media;
 using Windows.UI.Xaml.Media.Imaging;
@@ -51,6 +52,22 @@ namespace Sorvil.Views
         public ReaderPdfPage()
         {
             this.InitializeComponent();
+            SystemNavigationManager.GetForCurrentView().BackRequested += OnBackRequested;
+        }
+
+        // Esta página navega no Frame raiz da janela (App.RootFrame), não
+        // no ContentFrame aninhado do MainPage — então é dela mesma (e não
+        // do MainPage) cuidar do botão Voltar do sistema enquanto estiver
+        // em tela. A guarda por this.Frame.Content evita agir quando essa
+        // inscrição antiga ainda existe mas a página não está mais visível.
+        private void OnBackRequested(object sender, BackRequestedEventArgs e)
+        {
+            if (this.Frame.Content != this)
+            {
+                return;
+            }
+            e.Handled = true;
+            App.RootFrame.GoBack();
         }
 
         protected override async void OnNavigatedTo(NavigationEventArgs e)
