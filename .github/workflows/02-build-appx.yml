@@ -97,13 +97,19 @@ jobs:
           if ($LASTEXITCODE -eq 0) {
             Write-Host "app.appxbundle e version.json já estão atualizados, nada para commitar."
           } else {
+            # Outro push pode ter avançado o main entre o checkout deste job
+            # e este passo (ex.: dois builds seguidos, cada um gerando um
+            # app.appxbundle "novo"). Um simples "git pull --rebase" não
+            # resolve isso — é conflito de arquivo binário, que o git não
+            # sabe mesclar automaticamente. Em vez de tentar reconciliar
+            # histórico, só reancora o commit em cima do HEAD remoto mais
+            # recente e recommita por cima — estes dois arquivos são
+            # gerados, então a versão mais nova sempre deve vencer, sem
+            # mesclagem nenhuma.
+            git fetch origin main
+            git reset --soft origin/main
             git commit -m "chore: atualiza app/app.appxbundle e app/version.json (automático)"
-            # Alguém pode ter dado push no main entre o checkout deste job e
-            # este commit (ex.: outro push enquanto o build ainda rodava) —
-            # rebase em cima do que houver de novo antes de empurrar, em vez
-            # de deixar o push simplesmente falhar com "rejected".
-            git pull --rebase origin main
-            git push
+            git push origin HEAD:main
           }
 
       - name: Preparar o conteúdo do GitHub Pages (página de download em /app)
