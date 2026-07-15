@@ -35,8 +35,9 @@ namespace Sorvil.Views
         private int _pageIndexInChapter;
         private int _totalPagesInChapter = 1;
         private int? _pendingStartPage;
-        private bool _chromeVisible = true;
+        private bool _chromeVisible;
         private Flyout _tocFlyout;
+        private BookRecord _record;
 
         public ReaderEpubPage()
         {
@@ -59,15 +60,19 @@ namespace Sorvil.Views
 
             try
             {
-                BookRecord record = await LibraryDataStore.GetAsync(_bookId);
-                if (record == null)
+                _record = await LibraryDataStore.GetAsync(_bookId);
+                if (_record == null)
                 {
                     ShowLoadError("Livro não encontrado.");
                     return;
                 }
 
+                BookTitleText.Text = _record.Title;
+                BookAuthorText.Text = _record.Author;
+                ApplyDimLevel();
+
                 StorageFolder booksFolder = await ApplicationData.Current.LocalFolder.GetFolderAsync("Books");
-                StorageFile epubFile = await booksFolder.GetFileAsync(record.LocalFilePath);
+                StorageFile epubFile = await booksFolder.GetFileAsync(_record.LocalFilePath);
 
                 ChapterIndicatorText.Text = "Extraindo...";
                 _manifest = await EpubExtractor.ExtractAndParseAsync(_bookId, epubFile);
@@ -81,7 +86,7 @@ namespace Sorvil.Views
 
                 int startChapter = 0;
                 int startPage = 0;
-                string[] parts = (record.ReadingPositionJson ?? string.Empty).Split(':');
+                string[] parts = (_record.ReadingPositionJson ?? string.Empty).Split(':');
                 if (parts.Length >= 1)
                 {
                     int.TryParse(parts[0], out startChapter);
@@ -192,6 +197,7 @@ namespace Sorvil.Views
             ChapterIndicatorText.Text = "Cap. " + (_chapterIndex + 1) + "/" + _manifest.SpineFiles.Count +
                 " · pág " + (_pageIndexInChapter + 1) + "/" + _totalPagesInChapter +
                 " · ~" + Math.Round(approxPercent) + "%";
+            ReadingProgressBar.Value = approxPercent;
         }
 
         // — índice (sumário) —
@@ -312,8 +318,43 @@ namespace Sorvil.Views
             // reservada no layout, então o WebView não muda de tamanho (o
             // que invalidaria a paginação) só por causa do toque no meio.
             _chromeVisible = !_chromeVisible;
+            TopBar.Opacity = _chromeVisible ? 1 : 0;
+            TopBar.IsHitTestVisible = _chromeVisible;
             BottomBar.Opacity = _chromeVisible ? 1 : 0;
             BottomBar.IsHitTestVisible = _chromeVisible;
+        }
+
+        private void BackToHome_Click(object sender, RoutedEventArgs e)
+        {
+            MainPage.Current.NavigateToTab(typeof(HomePage));
+        }
+
+        private void SearchButton_Click(object sender, RoutedEventArgs e)
+        {
+            Flyout flyout = new Flyout
+            {
+                Content = new TextBlock
+                {
+                    Text = "Busca dentro do livro ainda não existe nesta versão.",
+                    TextWrapping = TextWrapping.Wrap,
+                    MaxWidth = 240,
+                },
+            };
+            flyout.ShowAt(TopBar);
+        }
+
+        private void GestureSettingsButton_Click(object sender, RoutedEventArgs e)
+        {
+            Flyout flyout = new Flyout
+            {
+                Content = new TextBlock
+                {
+                    Text = "Ajustes de gesto (toque nas bordas, arrastar, pinça) chegam em breve.",
+                    TextWrapping = TextWrapping.Wrap,
+                    MaxWidth = 240,
+                },
+            };
+            flyout.ShowAt(GestureSettingsButton);
         }
 
         // — scripts de paginação —
@@ -347,19 +388,11 @@ namespace Sorvil.Views
             await InvokeAsync(script);
         }
 
-        // — ajustes de leitura (fonte + tema) —
+        // — ajustes de leitura (fonte, tema, brilho) —
 
-        private void ReaderSettings_Click(object sender, RoutedEventArgs e)
+        private void TypographyButton_Click(object sender, RoutedEventArgs e)
         {
             StackPanel panel = new StackPanel { Padding = new Thickness(16), Width = 240 };
-
-            panel.Children.Add(new TextBlock { Text = "Tema de leitura", Margin = new Thickness(0, 0, 0, 8) });
-
-            StackPanel themeRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 20) };
-            themeRow.Children.Add(CreateThemeButton("Claro", "light"));
-            themeRow.Children.Add(CreateThemeButton("Sépia", "sepia"));
-            themeRow.Children.Add(CreateThemeButton("Escuro", "dark"));
-            panel.Children.Add(themeRow);
 
             panel.Children.Add(new TextBlock { Text = "Tamanho da fonte", Margin = new Thickness(0, 0, 0, 8) });
 
@@ -373,7 +406,44 @@ namespace Sorvil.Views
             panel.Children.Add(fontRow);
 
             Flyout flyout = new Flyout { Content = panel };
-            flyout.ShowAt(ReaderSettingsButton);
+            flyout.ShowAt(TypographyButton);
+        }
+
+        private void BrightnessButton_Click(object sender, RoutedEventArgs e)
+        {
+            StackPanel panel = new StackPanel { Padding = new Thickness(16), Width = 240 };
+
+            panel.Children.Add(new TextBlock { Text = "Escurecer tela", Margin = new Thickness(0, 0, 0, 8) });
+            Slider dimSlider = new Slider
+            {
+                Minimum = 0,
+                Maximum = 80,
+                Value = ReaderPreferenceStore.GetDimLevelPercent(),
+                Margin = new Thickness(0, 0, 0, 20),
+            };
+            dimSlider.ValueChanged += (dimSender, dimArgs) =>
+            {
+                int level = (int)dimArgs.NewValue;
+                ReaderPreferenceStore.SetDimLevelPercent(level);
+                ApplyDimLevel();
+            };
+            panel.Children.Add(dimSlider);
+
+            panel.Children.Add(new TextBlock { Text = "Tema de leitura", Margin = new Thickness(0, 0, 0, 8) });
+            StackPanel themeRow = new StackPanel { Orientation = Orientation.Horizontal };
+            themeRow.Children.Add(CreateThemeButton("Claro", "light"));
+            themeRow.Children.Add(CreateThemeButton("Sépia", "sepia"));
+            themeRow.Children.Add(CreateThemeButton("Escuro", "dark"));
+            panel.Children.Add(themeRow);
+
+            Flyout flyout = new Flyout { Content = panel };
+            flyout.ShowAt(BrightnessButton);
+        }
+
+        private void ApplyDimLevel()
+        {
+            int level = ReaderPreferenceStore.GetDimLevelPercent();
+            DimOverlay.Opacity = level / 100.0;
         }
 
         private Button CreateThemeButton(string label, string themeKey)

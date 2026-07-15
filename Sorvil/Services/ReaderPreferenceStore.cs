@@ -9,6 +9,7 @@ namespace Sorvil.Services
     {
         private const string FontSizeKey = "ReaderFontSizePercent";
         private const string ThemeKey = "ReaderTheme";
+        private const string DimLevelKey = "ReaderDimLevelPercent";
 
         public static int GetFontSizePercent()
         {
@@ -31,6 +32,19 @@ namespace Sorvil.Services
         public static void SetTheme(string theme)
         {
             ApplicationData.Current.LocalSettings.Values[ThemeKey] = theme;
+        }
+
+        // 0 = sem escurecimento, 80 = quase preto. Puramente um véu por
+        // cima da tela (Opacity de um Border) — não é brilho de hardware.
+        public static int GetDimLevelPercent()
+        {
+            object value = ApplicationData.Current.LocalSettings.Values[DimLevelKey];
+            return value is int percent ? percent : 0;
+        }
+
+        public static void SetDimLevelPercent(int percent)
+        {
+            ApplicationData.Current.LocalSettings.Values[DimLevelKey] = percent;
         }
     }
 }

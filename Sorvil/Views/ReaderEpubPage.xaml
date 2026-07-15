@@ -16,11 +16,18 @@
         <Grid Grid.Row="0">
             <WebView x:Name="ContentWebView" Margin="16,10" SizeChanged="ContentWebView_SizeChanged" />
 
+            <!-- "Brilho": um overlay preto semitransparente por cima de
+                 tudo, com a Opacity controlada por um slider — não mexe
+                 em brilho de hardware nenhum (evita depender de mais uma
+                 API de plataforma, depois do susto com a extensão da
+                 StatusBar). -->
+            <Border x:Name="DimOverlay" Background="Black" Opacity="0" IsHitTestVisible="False" />
+
             <!-- Zonas de toque por cima do WebView: esquerda volta página,
-                 direita avança, meio alterna a barra inferior — o mesmo
-                 padrão de Kindle/Freda. Ficam por cima de propósito: assim
-                 o toque nunca vira rolagem/seleção nativa do WebView, só
-                 controla a paginação via script. -->
+                 direita avança, meio alterna a barra de cima/baixo — o
+                 mesmo padrão de Kindle/Freda. Ficam por cima de propósito:
+                 assim o toque nunca vira rolagem/seleção nativa do
+                 WebView, só controla a paginação via script. -->
             <Grid Background="Transparent">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="1*" />
@@ -31,6 +38,30 @@
                 <Border Grid.Column="1" Background="Transparent" Tapped="ToggleChrome_Tapped" />
                 <Border Grid.Column="2" Background="Transparent" Tapped="NextZone_Tapped" />
             </Grid>
+
+            <!-- Barra de cima: some por padrão (leitura imersiva, igual
+                 Kindle/News) — só aparece ao tocar no meio da tela. -->
+            <Grid x:Name="TopBar"
+                  VerticalAlignment="Top"
+                  Background="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}"
+                  Padding="8,6"
+                  Opacity="0"
+                  IsHitTestVisible="False">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Button Grid.Column="0" Content="Voltar ao Início" Click="BackToHome_Click" HorizontalAlignment="Left" />
+                <Button x:Name="TypographyButton" Grid.Column="1" Content="Aa" Click="TypographyButton_Click" Margin="4,0" />
+                <Button x:Name="BrightnessButton" Grid.Column="2" Click="BrightnessButton_Click" Margin="4,0">
+                    <FontIcon Glyph="&#xE706;" FontSize="16" />
+                </Button>
+                <Button x:Name="GestureSettingsButton" Grid.Column="3" Click="GestureSettingsButton_Click">
+                    <FontIcon Glyph="&#xE713;" FontSize="16" />
+                </Button>
+            </Grid>
         </Grid>
 
         <ProgressRing x:Name="LoadingRing"
@@ -40,28 +71,46 @@
                       HorizontalAlignment="Center"
                       VerticalAlignment="Center" />
 
-        <Grid x:Name="BottomBar"
-              Grid.Row="1"
-              Padding="12,8"
-              Background="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}"
-              IsHitTestVisible="True">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <Button x:Name="TocButton" Grid.Column="0" Content="Índice" Click="TocButton_Click" Margin="0,0,8,0" />
-            <Button x:Name="ReaderSettingsButton" Grid.Column="1" Content="Aa" Click="ReaderSettings_Click" Margin="0,0,8,0" />
-            <Button Grid.Column="2" Content="Anterior" Click="PreviousButton_Click" />
-            <TextBlock x:Name="ChapterIndicatorText"
-                       Grid.Column="3"
-                       HorizontalAlignment="Center"
-                       VerticalAlignment="Center"
-                       FontSize="12"
-                       TextTrimming="CharacterEllipsis" />
-            <Button Grid.Column="4" Content="Próximo" Click="NextButton_Click" />
-        </Grid>
+        <!-- Barra de baixo: título/autor do livro, navegação de capítulo
+             (anterior/índice/nome do capítulo/busca/próximo) e uma barra
+             de progresso fina — também some por padrão. -->
+        <StackPanel x:Name="BottomBar"
+                    Grid.Row="1"
+                    Background="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}"
+                    Opacity="0"
+                    IsHitTestVisible="False">
+            <StackPanel Padding="12,8,12,4">
+                <TextBlock x:Name="BookTitleText" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                <TextBlock x:Name="BookAuthorText" Style="{StaticResource CaptionTextBlockStyle}" TextTrimming="CharacterEllipsis" />
+            </StackPanel>
+            <Grid Padding="12,0,12,4">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Button Grid.Column="0" Click="PreviousButton_Click" Margin="0,0,4,0">
+                    <FontIcon Glyph="&#xE76B;" FontSize="14" />
+                </Button>
+                <Button x:Name="TocButton" Grid.Column="1" Click="TocButton_Click" Margin="0,0,4,0">
+                    <FontIcon Glyph="&#xE8FD;" FontSize="14" />
+                </Button>
+                <TextBlock x:Name="ChapterIndicatorText"
+                           Grid.Column="2"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
+                           FontSize="12"
+                           TextTrimming="CharacterEllipsis" />
+                <Button Grid.Column="3" Click="SearchButton_Click" Margin="4,0">
+                    <FontIcon Glyph="&#xE721;" FontSize="14" />
+                </Button>
+                <Button Grid.Column="4" Click="NextButton_Click">
+                    <FontIcon Glyph="&#xE76C;" FontSize="14" />
+                </Button>
+            </Grid>
+            <ProgressBar x:Name="ReadingProgressBar" Minimum="0" Maximum="100" Height="4" />
+        </StackPanel>
     </Grid>
 </Page>
