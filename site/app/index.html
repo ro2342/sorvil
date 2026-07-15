@@ -30,6 +30,9 @@
       color: #a4a4ad;
       font-size: 0.9rem;
     }
+    a.cert {
+      background-color: #555b66;
+    }
   </style>
 </head>
 <body>
@@ -38,6 +41,9 @@
   <a class="download" href="./app.appxbundle" download="Sorvil.appxbundle">Baixar app.appxbundle</a>
   <p class="muted">Esse link sempre aponta pro arquivo mais recente enviado pra esse branch.</p>
   <p class="muted" id="versionInfo">Carregando informações da versão...</p>
+
+  <p class="muted">Se a instalação reclamar de editor não confiável, instale o certificado abaixo primeiro (só precisa uma vez) e tente de novo:</p>
+  <a class="download cert" href="./sorvil-public-cert.cer" download="sorvil-public-cert.cer">Baixar certificado (sorvil-public-cert.cer)</a>
   <script>
     fetch("./version.json", { cache: "no-store" })
       .then(function (res) { return res.json(); })

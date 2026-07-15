@@ -49,23 +49,25 @@ jobs:
         with:
           sdk-version: 17763
 
-      # Compilado em Debug (não Release) de propósito: Release usa o
-      # compilador .NET Native, cujo corte estático de metadados causou um
-      # crash real no lançamento no aparelho (InvalidCastException,
-      # "InvalidCast_WinRT ... Frame") mesmo com o build do CI 100% verde
-      # — essa checagem só existe em runtime. É o mesmo sintoma e a mesma
-      # correção que o theartistsway já precisou aplicar (ver histórico
-      # daquele repo: "App instala mas fecha na hora de abrir").
+      # Release + .NET Native é a configuração que o theartistsway usa de
+      # verdade (o registro de "mudei pra Debug" no histórico dele foi uma
+      # tentativa antiga, revertida — Debug não roda sideloaded fora do
+      # Visual Studio numa leitura mais cuidadosa, e foi exatamente o que
+      # aconteceu aqui: nem abriu, sem erro nenhum). O crash real
+      # "InvalidCast_WinRT ... Frame" foi corrigido removendo o padrão de
+      # código que o causava (ver ThemeModeService), não trocando a
+      # configuração de build.
       - name: Restaurar pacotes NuGet e compilar o appxbundle
         shell: cmd
         run: |
           msbuild Sorvil\Sorvil.csproj ^
             /restore ^
-            /p:Configuration=Debug ^
+            /p:Configuration=Release ^
             /p:Platform=ARM ^
             /p:AppxBundlePlatforms=ARM ^
             /p:AppxBundle=Always ^
             /p:UapAppxPackageBuildMode=SideloadOnly ^
+            /p:UseDotNetNativeToolchain=true ^
             /p:AppxPackageSigningEnabled=true ^
             /p:PackageCertificateKeyFile=Sorvil_TemporaryKey.pfx ^
             /p:PackageCertificatePassword=Sorvil2026! ^
@@ -125,6 +127,9 @@ jobs:
           Copy-Item -Path "site/*" -Destination "pages-dist" -Recurse -Force
           Copy-Item -Path "app/app.appxbundle" -Destination "pages-dist/app/app.appxbundle" -Force
           Copy-Item -Path "app/version.json" -Destination "pages-dist/app/version.json" -Force
+          if (Test-Path "app/sorvil-public-cert.cer") {
+            Copy-Item -Path "app/sorvil-public-cert.cer" -Destination "pages-dist/app/sorvil-public-cert.cer" -Force
+          }
 
       - name: Configurar o GitHub Pages
         uses: actions/configure-pages@v5

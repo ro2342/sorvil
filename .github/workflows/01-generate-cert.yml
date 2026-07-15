@@ -23,8 +23,10 @@ jobs:
         shell: pwsh
         run: |
           $pfxPath = "Sorvil/Sorvil_TemporaryKey.pfx"
-          $cerPath = "sorvil-public-cert.cer"
+          $cerPath = "app/sorvil-public-cert.cer"
           $password = "Sorvil2026!"
+
+          New-Item -ItemType Directory -Force -Path app | Out-Null
 
           $cert = New-SelfSignedCertificate `
             -Type Custom `
@@ -44,13 +46,13 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: sorvil-public-cert
-          path: sorvil-public-cert.cer
+          path: app/sorvil-public-cert.cer
 
-      - name: Salvar a chave privada (.pfx) de volta no repositório
+      - name: Salvar a chave privada (.pfx) e o certificado público no repositório
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Sorvil/Sorvil_TemporaryKey.pfx
+          git add Sorvil/Sorvil_TemporaryKey.pfx app/sorvil-public-cert.cer
           git commit -m "chore: gerar certificado de assinatura para sideload (automático)" || echo "nada para commitar"
           git push
