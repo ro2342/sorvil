@@ -98,16 +98,21 @@ jobs:
             Write-Host "app.appxbundle e version.json já estão atualizados, nada para commitar."
           } else {
             git commit -m "chore: atualiza app/app.appxbundle e app/version.json (automático)"
+            # Alguém pode ter dado push no main entre o checkout deste job e
+            # este commit (ex.: outro push enquanto o build ainda rodava) —
+            # rebase em cima do que houver de novo antes de empurrar, em vez
+            # de deixar o push simplesmente falhar com "rejected".
+            git pull --rebase origin main
             git push
           }
 
-      - name: Preparar o conteúdo do GitHub Pages (página de download na raiz)
+      - name: Preparar o conteúdo do GitHub Pages (página de download em /app)
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path pages-dist | Out-Null
+          New-Item -ItemType Directory -Force -Path pages-dist/app | Out-Null
           Copy-Item -Path "site/*" -Destination "pages-dist" -Recurse -Force
-          Copy-Item -Path "app/app.appxbundle" -Destination "pages-dist/app.appxbundle" -Force
-          Copy-Item -Path "app/version.json" -Destination "pages-dist/version.json" -Force
+          Copy-Item -Path "app/app.appxbundle" -Destination "pages-dist/app/app.appxbundle" -Force
+          Copy-Item -Path "app/version.json" -Destination "pages-dist/app/version.json" -Force
 
       - name: Configurar o GitHub Pages
         uses: actions/configure-pages@v5

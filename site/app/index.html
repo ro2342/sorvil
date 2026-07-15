@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sorvil — download</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 24px;
+      background-color: #1b1b1f;
+      color: #f2f2f5;
+      font-family: sans-serif;
+    }
+    h1 {
+      font-size: 1.3rem;
+    }
+    a.download {
+      display: block;
+      text-align: center;
+      background-color: #4a6fa5;
+      color: #ffffff;
+      text-decoration: none;
+      font-weight: bold;
+      padding: 16px;
+      border-radius: 6px;
+      margin: 20px 0;
+    }
+    p.muted {
+      color: #a4a4ad;
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+  <h1>Sorvil — build UWP</h1>
+  <p>Baixa o pacote mais recente pra instalar no aparelho.</p>
+  <a class="download" href="./app.appxbundle" download="Sorvil.appxbundle">Baixar app.appxbundle</a>
+  <p class="muted">Esse link sempre aponta pro arquivo mais recente enviado pra esse branch.</p>
+  <p class="muted" id="versionInfo">Carregando informações da versão...</p>
+  <script>
+    fetch("./version.json", { cache: "no-store" })
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        var el = document.getElementById("versionInfo");
+        var date = data.builtAt ? new Date(data.builtAt).toLocaleDateString("pt-BR") : "";
+        el.textContent = "Última versão publicada: " + data.version + (date ? " (" + date + ")" : "");
+      })
+      .catch(function () {
+        document.getElementById("versionInfo").textContent = "";
+      });
+  </script>
+</body>
+</html>
