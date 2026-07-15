@@ -68,6 +68,7 @@ namespace Sorvil.Services
                 using (HttpClient client = new HttpClient())
                 {
                     client.Timeout = TimeSpan.FromSeconds(10);
+                    client.DefaultRequestHeaders.Add("User-Agent", "Sorvil/1.0");
                     if (!string.IsNullOrEmpty(username) || !string.IsNullOrEmpty(password))
                     {
                         string token = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{username}:{password}"));
@@ -93,8 +94,9 @@ namespace Sorvil.Services
         }
 
         // Compartilhado por qualquer chamada autenticada contra o servidor
-        // já salvo (catálogo, capas) — CoverCacheService reaproveita isso
-        // em vez de duplicar a montagem do header Basic Auth.
+        // já salvo (catálogo, capas, download) — CoverCacheService e
+        // DownloadService reaproveitam isso em vez de duplicar a
+        // montagem do header Basic Auth.
         public static HttpClient CreateAuthenticatedClient()
         {
             ServerProfile profile = ServerConfigStore.Load();
@@ -105,6 +107,16 @@ namespace Sorvil.Services
                 string token = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{profile.Username}:{profile.Password}"));
                 client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", token);
             }
+
+            // O HttpClient do UWP não manda User-Agent por padrão (diferente
+            // de um navegador) — o Calibre-Web-Automated tem um bug real
+            // na rota de download OPDS (cps/opds.py:686) que assume que
+            // esse header sempre existe ("Kobo" in request.headers.get(...)
+            // explode com TypeError se vier None), retornando 500 pra
+            // qualquer cliente que não mande User-Agent. Sem isso pra
+            // contornar, todo download quebra nesse servidor.
+            client.DefaultRequestHeaders.Add("User-Agent", "Sorvil/1.0");
+
             return client;
         }
 
