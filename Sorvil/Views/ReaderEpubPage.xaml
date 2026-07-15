@@ -9,12 +9,13 @@
 
     <Page.Resources>
         <SolidColorBrush x:Key="SorvilGreenBrush" Color="#FF5DA130" />
-        <SolidColorBrush x:Key="SorvilGreenDarkBrush" Color="#FF4C8524" />
-        <SolidColorBrush x:Key="SorvilCharcoalBrush" Color="#FF2C2C2C" />
+        <SolidColorBrush x:Key="SorvilGreenActiveBrush" Color="#FF326019" />
+        <SolidColorBrush x:Key="SorvilLightIconBrush" Color="#FFEEEEEE" />
+        <SolidColorBrush x:Key="SorvilDimIconBrush" Color="#FFDDDDDD" />
 
-        <!-- Botão liso (sem chrome arredondado nem fundo no estado normal)
-             pros ícones da barra verde e das barras de leitura — o app já
-             usa esse padrão de template simplificado no MainPage. -->
+        <!-- Botão liso (sem chrome arredondado nem fundo no estado normal),
+             reaproveitado pelos ícones de todas as barras/painéis escuros
+             e pelo cabeçalho claro do índice. -->
         <Style x:Key="ReaderIconButtonStyle" TargetType="Button">
             <Setter Property="Padding" Value="10" />
             <Setter Property="Background" Value="Transparent" />
@@ -32,75 +33,65 @@
                 </Setter.Value>
             </Setter>
         </Style>
+
+        <Style x:Key="SegButtonStyle" TargetType="Button">
+            <Setter Property="Padding" Value="4,9" />
+            <Setter Property="FontSize" Value="12.5" />
+            <Setter Property="Background" Value="#FF555555" />
+            <Setter Property="Foreground" Value="#FFEEEEEE" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="BorderBrush" Value="#FF4A4A4A" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+        </Style>
     </Page.Resources>
 
-    <Grid>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-        </Grid.RowDefinitions>
+    <Grid x:Name="RootGrid" SizeChanged="RootGrid_SizeChanged">
+        <WebView x:Name="ContentWebView" SizeChanged="ContentWebView_SizeChanged" />
 
-        <!-- Cabeçalho verde, sempre visível (não some ao tocar) — igual
-             ao apphdr da página de livro no mockup: hambúrguer abre o
-             índice de capítulos, título do livro ao lado. -->
-        <Grid Grid.Row="0" Background="{StaticResource SorvilGreenBrush}">
+        <!-- "Brilho": um overlay preto semitransparente por cima de tudo,
+             com a Opacity controlada por um slider — não mexe em brilho de
+             hardware nenhum (evita depender de mais uma API de plataforma,
+             depois do susto com a extensão da StatusBar). -->
+        <Border x:Name="DimOverlay" Background="Black" Opacity="0" IsHitTestVisible="False" />
+
+        <!-- Zonas de toque por cima do WebView: esquerda/direita viram
+             página (só se "toque nos cantos" estiver ligado nos gestos),
+             meio alterna a barra de leitura. -->
+        <Grid x:Name="GestureZoneGrid"
+              Background="Transparent"
+              ManipulationMode="System"
+              ManipulationStarted="GestureZoneGrid_ManipulationStarted"
+              ManipulationDelta="GestureZoneGrid_ManipulationDelta"
+              ManipulationCompleted="GestureZoneGrid_ManipulationCompleted">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="1*" />
+                <ColumnDefinition Width="1.4*" />
+                <ColumnDefinition Width="1*" />
             </Grid.ColumnDefinitions>
-            <Button Grid.Column="0" Click="ChapterDrawerButton_Click" Style="{StaticResource ReaderIconButtonStyle}">
-                <FontIcon Glyph="&#xE700;" Foreground="White" FontSize="20" />
-            </Button>
-            <TextBlock x:Name="HeaderBookTitleText"
-                       Grid.Column="1"
-                       Foreground="White"
-                       FontWeight="SemiBold"
-                       FontSize="16"
-                       VerticalAlignment="Center"
-                       TextTrimming="CharacterEllipsis"
-                       Margin="4,0,16,0" />
+            <Border Grid.Column="0" Background="Transparent" Tapped="PreviousZone_Tapped" />
+            <Border Grid.Column="1" Background="Transparent" Tapped="ReaderArea_Tapped" />
+            <Border Grid.Column="2" Background="Transparent" Tapped="NextZone_Tapped" />
         </Grid>
 
-        <Grid Grid.Row="1">
-            <WebView x:Name="ContentWebView" SizeChanged="ContentWebView_SizeChanged" />
+        <ProgressRing x:Name="LoadingRing"
+                      IsActive="False"
+                      Width="32" Height="32"
+                      HorizontalAlignment="Center"
+                      VerticalAlignment="Center"
+                      Margin="0,0,0,36" />
 
-            <!-- "Brilho": um overlay preto semitransparente por cima de
-                 tudo, com a Opacity controlada por um slider — não mexe
-                 em brilho de hardware nenhum (evita depender de mais uma
-                 API de plataforma, depois do susto com a extensão da
-                 StatusBar). -->
-            <Border x:Name="DimOverlay" Background="Black" Opacity="0" IsHitTestVisible="False" />
+        <TextBlock x:Name="LoadingStatusText"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center"
+                   Margin="24,84,24,0"
+                   TextAlignment="Center"
+                   TextWrapping="Wrap" />
 
-            <!-- Zonas de toque por cima do WebView: esquerda volta página,
-                 direita avança, meio alterna as barras de leitura — o
-                 mesmo padrão de Kindle/Freda. Ficam por cima de propósito:
-                 assim o toque nunca vira rolagem/seleção nativa do
-                 WebView, só controla a paginação via script. -->
-            <Grid x:Name="GestureZoneGrid"
-                  Background="Transparent"
-                  ManipulationMode="System"
-                  ManipulationStarted="GestureZoneGrid_ManipulationStarted"
-                  ManipulationDelta="GestureZoneGrid_ManipulationDelta"
-                  ManipulationCompleted="GestureZoneGrid_ManipulationCompleted">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="1*" />
-                    <ColumnDefinition Width="1.4*" />
-                    <ColumnDefinition Width="1*" />
-                </Grid.ColumnDefinitions>
-                <Border Grid.Column="0" Background="Transparent" Tapped="PreviousZone_Tapped" />
-                <Border Grid.Column="1" Background="Transparent" Tapped="ToggleChrome_Tapped" />
-                <Border Grid.Column="2" Background="Transparent" Tapped="NextZone_Tapped" />
-            </Grid>
-
-            <!-- Barra de cima (some por padrão, aparece ao tocar no meio):
-                 Voltar ao Início à esquerda, Aa/brilho/gestos à direita —
-                 igual ao toolbar-top do mockup. -->
-            <Grid x:Name="TopBar"
-                  VerticalAlignment="Top"
-                  Background="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}"
-                  Padding="8,8"
-                  Opacity="0"
-                  IsHitTestVisible="False">
+        <!-- Barra de cima escura + painéis de fonte/tema/gestos, anexados
+             logo abaixo dela (não um Flyout por cima do texto) — some por
+             padrão (modo imersivo), aparece ao tocar no meio da tela. -->
+        <StackPanel x:Name="TopChrome" VerticalAlignment="Top" Opacity="0" IsHitTestVisible="False">
+            <Grid x:Name="ToolbarTop" Background="#FF3A3A3A" Padding="10,10">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
@@ -109,118 +100,139 @@
                 </Grid.ColumnDefinitions>
                 <Button Grid.Column="0" Click="BackToHome_Click" HorizontalAlignment="Left" Style="{StaticResource ReaderIconButtonStyle}">
                     <StackPanel Orientation="Horizontal">
-                        <FontIcon Glyph="&#xE80F;" FontSize="14" Margin="0,0,8,0" />
-                        <TextBlock Text="Voltar ao Início" FontSize="13" VerticalAlignment="Center" />
+                        <FontIcon Glyph="&#xE80F;" FontSize="14" Foreground="{StaticResource SorvilLightIconBrush}" Margin="0,0,8,0" />
+                        <TextBlock Text="Voltar ao Início" FontSize="13" Foreground="{StaticResource SorvilLightIconBrush}" VerticalAlignment="Center" />
                     </StackPanel>
                 </Button>
-                <Button x:Name="TypographyButton" Grid.Column="1" Content="Aa" Click="TypographyButton_Click" FontWeight="Bold" Style="{StaticResource ReaderIconButtonStyle}" />
+                <Button x:Name="TypographyButton" Grid.Column="1" Click="TypographyButton_Click" Style="{StaticResource ReaderIconButtonStyle}">
+                    <TextBlock x:Name="AaText" Text="Aa" FontWeight="Bold" Foreground="{StaticResource SorvilLightIconBrush}" />
+                </Button>
                 <Button x:Name="BrightnessButton" Grid.Column="2" Click="BrightnessButton_Click" Style="{StaticResource ReaderIconButtonStyle}">
-                    <FontIcon Glyph="&#xE706;" FontSize="17" />
+                    <FontIcon x:Name="BrightnessIcon" Glyph="&#xE706;" FontSize="17" Foreground="{StaticResource SorvilLightIconBrush}" />
                 </Button>
                 <Button x:Name="GestureSettingsButton" Grid.Column="3" Click="GestureSettingsButton_Click" Style="{StaticResource ReaderIconButtonStyle}">
-                    <FontIcon Glyph="&#xE713;" FontSize="17" />
+                    <FontIcon x:Name="GestureIcon" Glyph="&#xE713;" FontSize="17" Foreground="{StaticResource SorvilLightIconBrush}" />
                 </Button>
             </Grid>
-        </Grid>
 
-        <ProgressRing x:Name="LoadingRing"
-                      Grid.RowSpan="2"
-                      IsActive="False"
-                      Width="32" Height="32"
-                      HorizontalAlignment="Center"
-                      VerticalAlignment="Center"
-                      Margin="0,0,0,36" />
-
-        <!-- Status de carregamento/erro — independente da barra de baixo
-             (que some por padrão), pra sempre aparecer durante o primeiro
-             carregamento do livro, antes de qualquer toque na tela. -->
-        <TextBlock x:Name="LoadingStatusText"
-                   Grid.Row="1"
-                   HorizontalAlignment="Center"
-                   VerticalAlignment="Center"
-                   Margin="24,84,24,0"
-                   TextAlignment="Center"
-                   TextWrapping="Wrap" />
-
-        <!-- Barra de baixo (some por padrão, aparece ao tocar no meio):
-             fileira de ícones (fechar barra / índice / busca / próximo
-             capítulo) + legenda com título do livro e capítulo atual —
-             igual ao toolbar-bottom do mockup. -->
-        <StackPanel x:Name="BottomBar"
-                    Grid.Row="1"
-                    VerticalAlignment="Bottom"
-                    Background="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}"
-                    Opacity="0"
-                    IsHitTestVisible="False">
-            <Grid Padding="4,8,4,0">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-                <Button Grid.Column="0" Click="CollapseBar_Click" Style="{StaticResource ReaderIconButtonStyle}" HorizontalAlignment="Center">
-                    <FontIcon Glyph="&#xE76B;" FontSize="16" />
-                </Button>
-                <Button x:Name="TocButton" Grid.Column="1" Click="ChapterDrawerButton_Click" Style="{StaticResource ReaderIconButtonStyle}" HorizontalAlignment="Center">
-                    <FontIcon Glyph="&#xE700;" FontSize="16" />
-                </Button>
-                <Button Grid.Column="2" Click="SearchButton_Click" Style="{StaticResource ReaderIconButtonStyle}" HorizontalAlignment="Center">
-                    <FontIcon Glyph="&#xE721;" FontSize="16" />
-                </Button>
-                <Button Grid.Column="3" Click="NextButton_Click" Style="{StaticResource ReaderIconButtonStyle}" HorizontalAlignment="Center">
-                    <FontIcon Glyph="&#xE76C;" FontSize="16" />
-                </Button>
-            </Grid>
-            <StackPanel HorizontalAlignment="Center" Margin="0,2,0,8">
-                <TextBlock x:Name="BottomCaptionBookText"
-                           FontSize="11"
-                           Opacity="0.7"
-                           HorizontalAlignment="Center"
-                           TextTrimming="CharacterEllipsis"
-                           MaxWidth="280" />
-                <TextBlock x:Name="BottomCaptionChapterText"
-                           FontSize="12"
-                           FontWeight="SemiBold"
-                           HorizontalAlignment="Center"
-                           TextTrimming="CharacterEllipsis"
-                           MaxWidth="280"
-                           Margin="0,1,0,0" />
+            <StackPanel x:Name="FontPanel" Background="#FF363636" Padding="18,16" Visibility="Collapsed">
+                <Grid Margin="0,0,0,14">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="Fonte" FontSize="12.5" Foreground="#FFBBBBBB" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    <Border Grid.Column="2" BorderBrush="#FF666666" BorderThickness="1" Padding="10,6">
+                        <TextBlock Text="Padrão ▾" FontSize="12.5" Foreground="{StaticResource SorvilLightIconBrush}" />
+                    </Border>
+                </Grid>
+                <TextBlock Text="Tamanho da fonte" FontSize="12.5" Foreground="#FFBBBBBB" FontWeight="SemiBold" Margin="0,0,0,8" />
+                <Slider x:Name="FontSizeSlider" Minimum="70" Maximum="350" StepFrequency="10" Margin="0,0,0,14" ValueChanged="FontSizeSlider_ValueChanged" />
+                <TextBlock Text="Espaçamento entre linhas" FontSize="12.5" Foreground="#FFBBBBBB" FontWeight="SemiBold" Margin="0,0,0,8" />
+                <Slider x:Name="LineSpacingSlider" Minimum="1.0" Maximum="2.5" StepFrequency="0.1" Margin="0,0,0,14" ValueChanged="LineSpacingSlider_ValueChanged" />
+                <TextBlock Text="Margens" FontSize="12.5" Foreground="#FFBBBBBB" FontWeight="SemiBold" Margin="0,0,0,8" />
+                <Slider x:Name="MarginSlider" Minimum="8" Maximum="48" StepFrequency="2" Margin="0,0,0,14" ValueChanged="MarginSlider_ValueChanged" />
+                <TextBlock Text="Alinhamento" FontSize="12.5" Foreground="#FFBBBBBB" FontWeight="SemiBold" Margin="0,0,0,8" />
+                <StackPanel x:Name="JustificationRow" Orientation="Horizontal" />
             </StackPanel>
-            <ProgressBar x:Name="ReadingProgressBar" Minimum="0" Maximum="100" Height="3" />
+
+            <StackPanel x:Name="ThemePanel" Background="#FF363636" Padding="18,16" Visibility="Collapsed">
+                <TextBlock Text="Brilho da tela" FontSize="12.5" Foreground="#FFBBBBBB" FontWeight="SemiBold" Margin="0,0,0,8" />
+                <Slider x:Name="DimSlider" Minimum="0" Maximum="80" Margin="0,0,0,18" ValueChanged="DimSlider_ValueChanged" />
+                <TextBlock Text="Tema do livro" FontSize="12.5" Foreground="#FFBBBBBB" FontWeight="SemiBold" Margin="0,0,0,8" />
+                <StackPanel x:Name="ThemeRow" Orientation="Horizontal" />
+            </StackPanel>
+
+            <StackPanel x:Name="GesturesPanel" Background="#FF363636" Padding="18,4" Visibility="Collapsed" />
         </StackPanel>
 
-        <!-- Índice de capítulos: painel de tela cheia (não um Flyout
-             pequeno) que desliza por cima de tudo, igual ao chapter-drawer
-             do mockup — cabeçalho verde igual ao da página de leitura +
-             lista escura com o capítulo atual destacado. -->
-        <Grid x:Name="ChapterDrawer" Grid.RowSpan="2" Background="{StaticResource SorvilCharcoalBrush}" Visibility="Collapsed">
+        <!-- Índice: cabeçalho no estilo da Home (largura cheia) + lista de
+             capítulos encostada à esquerda ocupando ~62% da largura,
+             deixando o resto do conteúdo visível ao lado. -->
+        <Grid x:Name="IndexOverlay" Visibility="Collapsed">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
-            <Grid Grid.Row="0" Background="{StaticResource SorvilGreenBrush}">
+            <Grid Grid.Row="0" Background="#FFECECEC">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
-                <Button Grid.Column="0" Click="ChapterDrawerButton_Click" Style="{StaticResource ReaderIconButtonStyle}">
+                <Button Grid.Column="0" Click="CloseIndex_Click" Width="56" Height="48" Style="{StaticResource ReaderIconButtonStyle}">
                     <FontIcon Glyph="&#xE700;" Foreground="White" FontSize="20" />
                 </Button>
-                <TextBlock x:Name="DrawerBookTitleText"
+                <TextBlock x:Name="IndexHeaderTitleText"
                            Grid.Column="1"
-                           Foreground="White"
+                           Foreground="#FF1A1A1A"
                            FontWeight="SemiBold"
                            FontSize="16"
                            VerticalAlignment="Center"
                            TextTrimming="CharacterEllipsis"
                            Margin="4,0,16,0" />
             </Grid>
-            <ListView x:Name="ChapterDrawerList"
-                      Grid.Row="1"
-                      SelectionMode="None"
-                      IsItemClickEnabled="True"
-                      ItemClick="ChapterDrawerList_ItemClick" />
+            <Grid Grid.Row="1" HorizontalAlignment="Left">
+                <ListView x:Name="ChapterDrawerList"
+                          Background="#FF2C2C2C"
+                          SelectionMode="None"
+                          IsItemClickEnabled="True"
+                          ItemClick="ChapterDrawerList_ItemClick" />
+            </Grid>
         </Grid>
+
+        <!-- Barra de baixo escura: legenda, scrubber (visual) e a fileira
+             de ícones (índice / capítulo atual ou busca / busca) — só
+             aparece junto com a de cima quando nenhum painel/índice está
+             aberto. -->
+        <StackPanel x:Name="BottomBar" VerticalAlignment="Bottom" Background="#FF3A3A3A" Opacity="0" IsHitTestVisible="False" Padding="14,10,14,8">
+            <TextBlock x:Name="BottomCaptionText"
+                       FontSize="11"
+                       Foreground="#FFBBBBBB"
+                       HorizontalAlignment="Center"
+                       TextTrimming="CharacterEllipsis"
+                       MaxWidth="320"
+                       Margin="0,0,0,8" />
+            <Grid Margin="0,0,0,6">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Button Grid.Column="0" Click="ScrubBack_Click" Style="{StaticResource ReaderIconButtonStyle}">
+                    <FontIcon Glyph="&#xE892;" FontSize="14" Foreground="{StaticResource SorvilDimIconBrush}" />
+                </Button>
+                <Slider x:Name="ScrubberSlider" Grid.Column="1" Minimum="0" Maximum="100" IsThumbToolTipEnabled="False" />
+                <Button Grid.Column="2" Click="ScrubForward_Click" Style="{StaticResource ReaderIconButtonStyle}">
+                    <FontIcon Glyph="&#xE893;" FontSize="14" Foreground="{StaticResource SorvilDimIconBrush}" />
+                </Button>
+            </Grid>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Button Grid.Column="0" Click="OpenIndex_Click" Style="{StaticResource ReaderIconButtonStyle}">
+                    <FontIcon Glyph="&#xE700;" FontSize="16" Foreground="{StaticResource SorvilDimIconBrush}" />
+                </Button>
+                <TextBlock x:Name="TbCenterLabel"
+                           Grid.Column="1"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
+                           Foreground="{StaticResource SorvilLightIconBrush}"
+                           FontSize="12"
+                           FontWeight="SemiBold"
+                           TextTrimming="CharacterEllipsis" />
+                <TextBox x:Name="TbSearchInput"
+                         Grid.Column="1"
+                         Visibility="Collapsed"
+                         PlaceholderText="Pesquisar no livro..."
+                         Margin="8,0" />
+                <Button Grid.Column="2" Click="ToggleSearch_Click" Style="{StaticResource ReaderIconButtonStyle}">
+                    <FontIcon Glyph="&#xE721;" FontSize="16" Foreground="{StaticResource SorvilDimIconBrush}" />
+                </Button>
+            </Grid>
+        </StackPanel>
     </Grid>
 </Page>

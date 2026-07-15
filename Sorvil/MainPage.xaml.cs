@@ -1,8 +1,7 @@
 using System;
-using Sorvil.Services;
 using Sorvil.Views;
+using Windows.UI;
 using Windows.UI.Core;
-using Windows.UI.ViewManagement;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Input;
@@ -15,13 +14,18 @@ namespace Sorvil
     // no topo (hambúrguer + título da seção atual) que abre um SplitView
     // deslizando por cima do conteúdo, no espírito da barra de cima dos apps
     // nativos da Microsoft (News/Forecast/Settings: "☰ Nome da seção").
-    // Mesmo padrão do shell usado no the artistsway/uwp.
+    // Mesmo padrão do shell usado no the artistsway/uwp — mas com a
+    // paleta de marca fixa do Sorvil (verde/cinza claro/carvão), não a cor
+    // de destaque do sistema, então não precisa acompanhar troca de tema
+    // em tempo real como antes.
     public sealed partial class MainPage : Page
     {
         public static MainPage Current { get; private set; }
 
+        private static readonly SolidColorBrush ActiveTabBrush = new SolidColorBrush(Color.FromArgb(0xFF, 0x32, 0x60, 0x19));
+        private static readonly SolidColorBrush InactiveTabBrush = new SolidColorBrush(Color.FromArgb(0xFF, 0xDD, 0xDD, 0xDD));
+
         private Type _currentTabPageType;
-        private readonly UISettings _uiSettings = new UISettings();
 
         public MainPage()
         {
@@ -29,17 +33,9 @@ namespace Sorvil
             {
                 this.InitializeComponent();
                 Current = this;
-                StyleMenuButton();
                 this.Loaded += MainPage_Loaded;
                 ContentFrame.Navigated += ContentFrame_Navigated;
                 SystemNavigationManager.GetForCurrentView().BackRequested += OnBackRequested;
-
-                // SystemAccentColor já é {ThemeResource} em tudo que a gente
-                // não copia manualmente, então atualiza sozinho — mas o
-                // MenuButton e o item ativo do painel usam SolidColorBrush
-                // copiado uma vez (ThemeHelper.AccentBrush), que não
-                // acompanha a troca ao vivo.
-                _uiSettings.ColorValuesChanged += UiSettings_ColorValuesChanged;
             }
             catch (Exception ex)
             {
@@ -47,23 +43,15 @@ namespace Sorvil
             }
         }
 
-        private async void UiSettings_ColorValuesChanged(UISettings sender, object args)
+        // A gaveta ocupa 40% da largura da tela (não um valor fixo em px)
+        // — OpenPaneLength não aceita porcentagem direto no XAML, então
+        // recalcula a cada mudança de tamanho/rotação.
+        private void RootLayoutGrid_SizeChanged(object sender, SizeChangedEventArgs e)
         {
-            await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
+            if (e.NewSize.Width > 0)
             {
-                StyleMenuButton();
-                if (_currentTabPageType != null)
-                {
-                    UpdateActiveTab(_currentTabPageType);
-                }
-            });
-        }
-
-        private void StyleMenuButton()
-        {
-            SolidColorBrush accent = ThemeHelper.AccentBrush();
-            MenuButton.Background = accent;
-            MenuButton.Foreground = new SolidColorBrush(Windows.UI.Colors.White);
+                NavSplitView.OpenPaneLength = e.NewSize.Width * 0.4;
+            }
         }
 
         private void MainPage_Loaded(object sender, RoutedEventArgs e)
@@ -132,22 +120,19 @@ namespace Sorvil
 
         private void UpdateActiveTab(Type pageType)
         {
-            // Nunca calcula um brush "padrão" na mão aqui: um lookup via
-            // Application.Current.Resources[...] não acompanha troca de
-            // tema em tempo real. Em vez disso, limpa o valor local
-            // (ClearValue) pra herdar o Foreground padrão, que É
-            // theme-aware de verdade via {ThemeResource}.
-            SolidColorBrush accent = ThemeHelper.AccentBrush();
-
+            // Verde mais escuro que o do hambúrguer, pra diferenciar "onde
+            // está o controle" (hambúrguer, verde forte) de "onde você
+            // está" (item ativo, verde mais escuro) — cor fixa de marca,
+            // não a cor de destaque do sistema.
             bool isHome = pageType == typeof(HomePage);
             bool isLibrary = pageType == typeof(LibraryPage);
             bool isDownloads = pageType == typeof(DownloadsPage);
             bool isSettings = pageType == typeof(SettingsPage);
 
-            SetTabForeground(NavHomeLabel, NavHomeIcon, isHome, accent);
-            SetTabForeground(NavLibraryLabel, NavLibraryIcon, isLibrary, accent);
-            SetTabForeground(NavDownloadsLabel, NavDownloadsIcon, isDownloads, accent);
-            SetTabForeground(NavSettingsLabel, NavSettingsIcon, isSettings, accent);
+            SetTabForeground(NavHomeLabel, NavHomeIcon, isHome);
+            SetTabForeground(NavLibraryLabel, NavLibraryIcon, isLibrary);
+            SetTabForeground(NavDownloadsLabel, NavDownloadsIcon, isDownloads);
+            SetTabForeground(NavSettingsLabel, NavSettingsIcon, isSettings);
 
             if (isHome) HeaderTitleText.Text = "Início";
             else if (isLibrary) HeaderTitleText.Text = "Biblioteca";
@@ -155,18 +140,11 @@ namespace Sorvil
             else if (isSettings) HeaderTitleText.Text = "Ajustes";
         }
 
-        private static void SetTabForeground(TextBlock label, IconElement icon, bool active, Brush accent)
+        private static void SetTabForeground(TextBlock label, IconElement icon, bool active)
         {
-            if (active)
-            {
-                label.Foreground = accent;
-                icon.Foreground = accent;
-            }
-            else
-            {
-                label.ClearValue(TextBlock.ForegroundProperty);
-                icon.ClearValue(IconElement.ForegroundProperty);
-            }
+            Brush brush = active ? ActiveTabBrush : InactiveTabBrush;
+            label.Foreground = brush;
+            icon.Foreground = brush;
         }
 
         // — navegação/voltar —

@@ -1,7 +1,6 @@
 using Sorvil.Models;
 using Sorvil.Services;
 using System;
-using System.Collections.Generic;
 using System.Threading.Tasks;
 using Windows.Storage;
 using Windows.UI;
@@ -9,6 +8,7 @@ using Windows.UI.Core;
 using Windows.UI.Text;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
+using Windows.UI.Xaml.Controls.Primitives;
 using Windows.UI.Xaml.Input;
 using Windows.UI.Xaml.Media;
 using Windows.UI.Xaml.Navigation;
@@ -22,9 +22,13 @@ namespace Sorvil.Views
     // motor de renderização já quebra o texto em "páginas" sozinho. Virar
     // página é só aplicar um transform: translateX deslocando o conteúdo
     // uma tela inteira pro lado (sem rolagem nativa visível, controle
-    // total via script). Zonas de toque nas laterais fazem o gesto
-    // "tocar pra virar página"; a casca (Anterior/Próximo/Aa) continua
-    // funcionando pra quem preferir botão.
+    // total via script).
+    //
+    // A casca de leitura é uma máquina de estados só (ReaderChromeState),
+    // igual ao protótipo em sorvil-mockup.html: nenhum estado (imersivo),
+    // barra simples, um dos três painéis (fonte/tema/gestos) anexado
+    // logo abaixo da barra de cima, ou o índice (que substitui a barra de
+    // cima por um cabeçalho claro + lista de capítulos).
     //
     // KEPUB é tratado como EPUB comum — os <span> extras da Kobo não
     // atrapalham a paginação. O EPUB só é descompactado (custo real) na
@@ -32,6 +36,16 @@ namespace Sorvil.Views
     // BooksExtracted/, então reabrir o mesmo livro é rápido.
     public sealed partial class ReaderEpubPage : Page
     {
+        private enum ReaderChromeState
+        {
+            None,
+            Toolbar,
+            Font,
+            Theme,
+            Gestures,
+            Index,
+        }
+
         private string _bookId;
         private string _folderName;
         private EpubManifest _manifest;
@@ -39,10 +53,11 @@ namespace Sorvil.Views
         private int _pageIndexInChapter;
         private int _totalPagesInChapter = 1;
         private int? _pendingStartPage;
-        private bool _chromeVisible;
         private BookRecord _record;
         private double _manipulationTranslationX;
         private double _manipulationScale = 1.0;
+        private ReaderChromeState _state = ReaderChromeState.None;
+        private bool _suppressSliderEvents;
 
         public ReaderEpubPage()
         {
@@ -50,14 +65,19 @@ namespace Sorvil.Views
             ContentWebView.NavigationCompleted += ContentWebView_NavigationCompleted;
             ContentWebView.NavigationFailed += ContentWebView_NavigationFailed;
             SystemNavigationManager.GetForCurrentView().BackRequested += OnBackRequested;
+
+            _suppressSliderEvents = true;
+            BuildFontPanel();
+            BuildThemePanel();
+            BuildGesturesPanel();
+            _suppressSliderEvents = false;
         }
 
         // Esta página navega no Frame raiz da janela (App.RootFrame), não
         // no ContentFrame aninhado do MainPage — então é dela mesma (e não
         // do MainPage) cuidar do botão Voltar do sistema enquanto estiver
         // em tela. A guarda por this.Frame.Content evita agir quando essa
-        // inscrição antiga ainda existe mas a página não está mais visível
-        // (ex.: já saiu do leitor e voltou pro MainPage).
+        // inscrição antiga ainda existe mas a página não está mais visível.
         private void OnBackRequested(object sender, BackRequestedEventArgs e)
         {
             if (this.Frame.Content != this)
@@ -65,24 +85,27 @@ namespace Sorvil.Views
                 return;
             }
 
-            // Segue a mesma ordem "de dentro pra fora" do mockup: fecha o
-            // índice de capítulos se estiver aberto, senão esconde a
-            // barra de leitura se estiver visível, só senão sai do leitor.
-            if (ChapterDrawer.Visibility == Visibility.Visible)
+            // Um passo de cada vez, de dentro pra fora: índice/painel volta
+            // pra barra simples; barra simples esconde tudo (imersivo);
+            // imersivo sai do leitor.
+            if (_state == ReaderChromeState.None)
             {
                 e.Handled = true;
-                CloseChapterDrawer();
-                return;
-            }
-            if (_chromeVisible)
-            {
-                e.Handled = true;
-                ToggleChrome();
+                App.RootFrame.GoBack();
                 return;
             }
 
             e.Handled = true;
-            App.RootFrame.GoBack();
+            _state = _state == ReaderChromeState.Toolbar ? ReaderChromeState.None : ReaderChromeState.Toolbar;
+            ApplyReaderChromeState();
+        }
+
+        private void RootGrid_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            if (e.NewSize.Width > 0)
+            {
+                ChapterDrawerList.Width = e.NewSize.Width * 0.62;
+            }
         }
 
         protected override async void OnNavigatedTo(NavigationEventArgs e)
@@ -106,9 +129,10 @@ namespace Sorvil.Views
                     return;
                 }
 
-                HeaderBookTitleText.Text = _record.Title;
-                DrawerBookTitleText.Text = _record.Title;
-                BottomCaptionBookText.Text = _record.Title;
+                IndexHeaderTitleText.Text = _record.Title;
+                BottomCaptionText.Text = string.IsNullOrEmpty(_record.Author)
+                    ? _record.Title
+                    : _record.Title + " (" + _record.Author + ")";
                 ApplyDimLevel();
                 UpdateGestureMode();
 
@@ -237,15 +261,16 @@ namespace Sorvil.Views
                 ? (double)(_pageIndexInChapter + 1) / _totalPagesInChapter
                 : 0;
             double approxPercent = (_chapterIndex + withinChapter) / _manifest.SpineFiles.Count * 100.0;
-            ReadingProgressBar.Value = approxPercent;
+            ScrubberSlider.Value = approxPercent;
 
             int currentTocIndex = FindCurrentTocIndex();
-            BottomCaptionChapterText.Text = currentTocIndex >= 0
-                ? _manifest.Toc[currentTocIndex].Title
+            string chapterTitle = currentTocIndex >= 0 ? _manifest.Toc[currentTocIndex].Title : null;
+            TbCenterLabel.Text = chapterTitle != null
+                ? "Capítulo " + (_chapterIndex + 1) + " - " + chapterTitle
                 : "Capítulo " + (_chapterIndex + 1);
         }
 
-        // — índice (sumário): painel de tela cheia, não um Flyout pequeno —
+        // — índice (sumário) —
 
         private void PopulateChapterDrawer()
         {
@@ -269,13 +294,12 @@ namespace Sorvil.Views
                 };
                 ChapterDrawerList.Items.Add(container);
             }
-            HighlightCurrentChapterInDrawer();
         }
 
         private void HighlightCurrentChapterInDrawer()
         {
             int currentTocIndex = FindCurrentTocIndex();
-            SolidColorBrush activeBackground = new SolidColorBrush(Color.FromArgb(0xFF, 0x4C, 0x85, 0x24));
+            SolidColorBrush activeBackground = new SolidColorBrush(Color.FromArgb(0xFF, 0x32, 0x60, 0x19));
             SolidColorBrush inactiveBackground = new SolidColorBrush(Colors.Transparent);
 
             for (int i = 0; i < ChapterDrawerList.Items.Count; i++)
@@ -313,37 +337,24 @@ namespace Sorvil.Views
             return best;
         }
 
-        private void ChapterDrawerButton_Click(object sender, RoutedEventArgs e)
+        private void OpenIndex_Click(object sender, RoutedEventArgs e)
         {
-            if (ChapterDrawer.Visibility == Visibility.Visible)
-            {
-                CloseChapterDrawer();
-            }
-            else
-            {
-                OpenChapterDrawer();
-            }
+            _state = ReaderChromeState.Index;
+            ApplyReaderChromeState();
         }
 
-        private void OpenChapterDrawer()
+        private void CloseIndex_Click(object sender, RoutedEventArgs e)
         {
-            if (_manifest != null)
-            {
-                HighlightCurrentChapterInDrawer();
-            }
-            ChapterDrawer.Visibility = Visibility.Visible;
-        }
-
-        private void CloseChapterDrawer()
-        {
-            ChapterDrawer.Visibility = Visibility.Collapsed;
+            _state = ReaderChromeState.Toolbar;
+            ApplyReaderChromeState();
         }
 
         private async void ChapterDrawerList_ItemClick(object sender, ItemClickEventArgs e)
         {
             ListViewItem clickedContainer = e.ClickedItem as ListViewItem;
             EpubTocEntry entry = clickedContainer != null ? clickedContainer.Tag as EpubTocEntry : null;
-            CloseChapterDrawer();
+            _state = ReaderChromeState.None;
+            ApplyReaderChromeState();
             if (entry != null)
             {
                 await NavigateToChapterAsync(entry.SpineIndex, null);
@@ -392,12 +403,16 @@ namespace Sorvil.Views
             }
         }
 
-        private async void PreviousButton_Click(object sender, RoutedEventArgs e)
+        // Os botões de "retroceder/avançar" do scrubber dão um pequeno
+        // salto — a barra em si (arrastar o thumb) é só visual, igual ao
+        // protótipo, mas esses dois botões são um atalho real e barato:
+        // uma página pra cada lado.
+        private async void ScrubBack_Click(object sender, RoutedEventArgs e)
         {
             await GoToPreviousAsync();
         }
 
-        private async void NextButton_Click(object sender, RoutedEventArgs e)
+        private async void ScrubForward_Click(object sender, RoutedEventArgs e)
         {
             await GoToNextAsync();
         }
@@ -422,7 +437,7 @@ namespace Sorvil.Views
 
         // — gestos opcionais: arrastar vira página, pinça ajusta a fonte —
         // Só habilitados de verdade (ManipulationMode diferente de
-        // "System") quando o usuário liga um dos dois no flyout de
+        // "System") quando o usuário liga um dos dois no painel de
         // gestos — por padrão a zona de toque continua se comportando
         // exatamente como antes (só Tapped, sem processar manipulação
         // nenhuma), pra não arriscar interferir no toque simples que já
@@ -477,7 +492,8 @@ namespace Sorvil.Views
                 int delta = (int)Math.Round((_manipulationScale - 1.0) * 100);
                 if (delta != 0)
                 {
-                    await AdjustFontSizeAsync(delta);
+                    SetFontSizePercent(ReaderPreferenceStore.GetFontSizePercent() + delta);
+                    await ReapplyStyleAndRepaginateAsync();
                 }
             }
             else if (!isPinch && ReaderPreferenceStore.GetSwipeEnabled() && Math.Abs(_manipulationTranslationX) > SwipeThresholdPixels)
@@ -493,26 +509,44 @@ namespace Sorvil.Views
             }
         }
 
-        private void ToggleChrome_Tapped(object sender, TappedRoutedEventArgs e)
+        // — casca de leitura: máquina de estados —
+
+        private void ReaderArea_Tapped(object sender, TappedRoutedEventArgs e)
         {
-            ToggleChrome();
+            if (_state == ReaderChromeState.None)
+            {
+                _state = ReaderChromeState.Toolbar;
+            }
+            else if (_state == ReaderChromeState.Toolbar)
+            {
+                _state = ReaderChromeState.None;
+            }
+            else
+            {
+                _state = ReaderChromeState.Toolbar;
+            }
+            ApplyReaderChromeState();
         }
 
-        private void CollapseBar_Click(object sender, RoutedEventArgs e)
+        private void TogglePanel(ReaderChromeState which)
         {
-            ToggleChrome();
+            _state = _state == which ? ReaderChromeState.Toolbar : which;
+            ApplyReaderChromeState();
         }
 
-        private void ToggleChrome()
+        private void TypographyButton_Click(object sender, RoutedEventArgs e)
         {
-            // Opacity em vez de Visibility.Collapsed — a linha continua
-            // reservada no layout, então o WebView não muda de tamanho (o
-            // que invalidaria a paginação) só por causa do toque no meio.
-            _chromeVisible = !_chromeVisible;
-            TopBar.Opacity = _chromeVisible ? 1 : 0;
-            TopBar.IsHitTestVisible = _chromeVisible;
-            BottomBar.Opacity = _chromeVisible ? 1 : 0;
-            BottomBar.IsHitTestVisible = _chromeVisible;
+            TogglePanel(ReaderChromeState.Font);
+        }
+
+        private void BrightnessButton_Click(object sender, RoutedEventArgs e)
+        {
+            TogglePanel(ReaderChromeState.Theme);
+        }
+
+        private void GestureSettingsButton_Click(object sender, RoutedEventArgs e)
+        {
+            TogglePanel(ReaderChromeState.Gestures);
         }
 
         private void BackToHome_Click(object sender, RoutedEventArgs e)
@@ -520,65 +554,217 @@ namespace Sorvil.Views
             App.RootFrame.GoBack();
         }
 
-        private void SearchButton_Click(object sender, RoutedEventArgs e)
+        private void ToggleSearch_Click(object sender, RoutedEventArgs e)
         {
-            Flyout flyout = new Flyout
+            bool opening = TbSearchInput.Visibility == Visibility.Collapsed;
+            TbSearchInput.Visibility = opening ? Visibility.Visible : Visibility.Collapsed;
+            TbCenterLabel.Visibility = opening ? Visibility.Collapsed : Visibility.Visible;
+            if (opening)
             {
-                Content = new TextBlock
-                {
-                    Text = "Busca dentro do livro ainda não existe nesta versão.",
-                    TextWrapping = TextWrapping.Wrap,
-                    MaxWidth = 240,
-                },
-            };
-            flyout.ShowAt(TopBar);
+                TbSearchInput.Focus(FocusState.Programmatic);
+            }
         }
 
-        private void GestureSettingsButton_Click(object sender, RoutedEventArgs e)
+        private void ApplyReaderChromeState()
         {
-            StackPanel panel = new StackPanel { Padding = new Thickness(16), Width = 260 };
-            panel.Children.Add(new TextBlock
-            {
-                Text = "Gestos de navegação",
-                FontWeight = FontWeights.SemiBold,
-                Margin = new Thickness(0, 0, 0, 12),
-            });
+            bool showTop = _state != ReaderChromeState.None;
+            TopChrome.Opacity = showTop ? 1 : 0;
+            TopChrome.IsHitTestVisible = showTop;
 
-            ToggleSwitch tapCornersSwitch = new ToggleSwitch
-            {
-                Header = "Tocar nas bordas vira página",
-                IsOn = ReaderPreferenceStore.GetTapCornersEnabled(),
-            };
-            tapCornersSwitch.Toggled += (tapSender, tapArgs) =>
-                ReaderPreferenceStore.SetTapCornersEnabled(tapCornersSwitch.IsOn);
-            panel.Children.Add(tapCornersSwitch);
+            bool isIndex = _state == ReaderChromeState.Index;
+            ToolbarTop.Visibility = isIndex ? Visibility.Collapsed : Visibility.Visible;
+            IndexOverlay.Visibility = isIndex ? Visibility.Visible : Visibility.Collapsed;
 
-            ToggleSwitch swipeSwitch = new ToggleSwitch
-            {
-                Header = "Arrastar o dedo vira página",
-                IsOn = ReaderPreferenceStore.GetSwipeEnabled(),
-            };
-            swipeSwitch.Toggled += (swipeSender, swipeArgs) =>
-            {
-                ReaderPreferenceStore.SetSwipeEnabled(swipeSwitch.IsOn);
-                UpdateGestureMode();
-            };
-            panel.Children.Add(swipeSwitch);
+            FontPanel.Visibility = _state == ReaderChromeState.Font ? Visibility.Visible : Visibility.Collapsed;
+            ThemePanel.Visibility = _state == ReaderChromeState.Theme ? Visibility.Visible : Visibility.Collapsed;
+            GesturesPanel.Visibility = _state == ReaderChromeState.Gestures ? Visibility.Visible : Visibility.Collapsed;
 
+            bool showBottom = _state == ReaderChromeState.Toolbar;
+            BottomBar.Opacity = showBottom ? 1 : 0;
+            BottomBar.IsHitTestVisible = showBottom;
+            if (!showBottom)
+            {
+                TbSearchInput.Visibility = Visibility.Collapsed;
+                TbCenterLabel.Visibility = Visibility.Visible;
+            }
+
+            SolidColorBrush activeIconBrush = new SolidColorBrush(Color.FromArgb(0xFF, 0x5D, 0xA1, 0x30));
+            SolidColorBrush inactiveIconBrush = new SolidColorBrush(Color.FromArgb(0xFF, 0xEE, 0xEE, 0xEE));
+            AaText.Foreground = _state == ReaderChromeState.Font ? activeIconBrush : inactiveIconBrush;
+            BrightnessIcon.Foreground = _state == ReaderChromeState.Theme ? activeIconBrush : inactiveIconBrush;
+            GestureIcon.Foreground = _state == ReaderChromeState.Gestures ? activeIconBrush : inactiveIconBrush;
+
+            if (isIndex && _manifest != null)
+            {
+                HighlightCurrentChapterInDrawer();
+            }
+        }
+
+        // — painel de fonte —
+
+        private void BuildFontPanel()
+        {
+            FontSizeSlider.Value = ReaderPreferenceStore.GetFontSizePercent();
+            LineSpacingSlider.Value = ReaderPreferenceStore.GetLineSpacing();
+            MarginSlider.Value = ReaderPreferenceStore.GetMarginPx();
+
+            AddSegButton(JustificationRow, "Esquerda", "left", ApplyJustification);
+            AddSegButton(JustificationRow, "Justificado", "justify", ApplyJustification);
+            RefreshSegRow(JustificationRow, ReaderPreferenceStore.GetJustification());
+        }
+
+        private void SetFontSizePercent(int percent)
+        {
+            int clamped = Math.Max(70, Math.Min(350, percent));
+            ReaderPreferenceStore.SetFontSizePercent(clamped);
+            _suppressSliderEvents = true;
+            FontSizeSlider.Value = clamped;
+            _suppressSliderEvents = false;
+        }
+
+        private async void FontSizeSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
+        {
+            if (_suppressSliderEvents)
+            {
+                return;
+            }
+            ReaderPreferenceStore.SetFontSizePercent((int)e.NewValue);
+            await ReapplyStyleAndRepaginateAsync();
+        }
+
+        private async void LineSpacingSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
+        {
+            if (_suppressSliderEvents)
+            {
+                return;
+            }
+            ReaderPreferenceStore.SetLineSpacing(Math.Round(e.NewValue, 1));
+            await ReapplyStyleAndRepaginateAsync();
+        }
+
+        private async void MarginSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
+        {
+            if (_suppressSliderEvents)
+            {
+                return;
+            }
+            ReaderPreferenceStore.SetMarginPx((int)e.NewValue);
+            await ReapplyStyleAndRepaginateAsync();
+        }
+
+        private async void ApplyJustification(string value)
+        {
+            ReaderPreferenceStore.SetJustification(value);
+            RefreshSegRow(JustificationRow, value);
+            await ReapplyStyleAndRepaginateAsync();
+        }
+
+        // — painel de tema/brilho —
+
+        private void BuildThemePanel()
+        {
+            DimSlider.Value = ReaderPreferenceStore.GetDimLevelPercent();
+
+            AddSegButton(ThemeRow, "Claro", "light", ApplyTheme);
+            AddSegButton(ThemeRow, "Escuro", "dark", ApplyTheme);
+            AddSegButton(ThemeRow, "Sépia", "sepia", ApplyTheme);
+            RefreshSegRow(ThemeRow, ReaderPreferenceStore.GetTheme());
+        }
+
+        private void DimSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
+        {
+            if (_suppressSliderEvents)
+            {
+                return;
+            }
+            ReaderPreferenceStore.SetDimLevelPercent((int)e.NewValue);
+            ApplyDimLevel();
+        }
+
+        private async void ApplyTheme(string value)
+        {
+            ReaderPreferenceStore.SetTheme(value);
+            RefreshSegRow(ThemeRow, value);
+            await ReapplyStyleAndRepaginateAsync();
+        }
+
+        private void ApplyDimLevel()
+        {
+            int level = ReaderPreferenceStore.GetDimLevelPercent();
+            DimOverlay.Opacity = level / 100.0;
+        }
+
+        // — painel de gestos —
+
+        private void BuildGesturesPanel()
+        {
             ToggleSwitch pinchSwitch = new ToggleSwitch
             {
-                Header = "Pinça ajusta o tamanho da fonte",
+                Header = "Zoom do texto com movimento de pinça",
                 IsOn = ReaderPreferenceStore.GetPinchToZoomEnabled(),
             };
-            pinchSwitch.Toggled += (pinchSender, pinchArgs) =>
+            pinchSwitch.Toggled += (s, a) =>
             {
                 ReaderPreferenceStore.SetPinchToZoomEnabled(pinchSwitch.IsOn);
                 UpdateGestureMode();
             };
-            panel.Children.Add(pinchSwitch);
+            GesturesPanel.Children.Add(pinchSwitch);
 
-            Flyout flyout = new Flyout { Content = panel };
-            flyout.ShowAt(GestureSettingsButton);
+            ToggleSwitch tapCornersSwitch = new ToggleSwitch
+            {
+                Header = "Toque nos cantos para mudar página",
+                IsOn = ReaderPreferenceStore.GetTapCornersEnabled(),
+            };
+            tapCornersSwitch.Toggled += (s, a) =>
+                ReaderPreferenceStore.SetTapCornersEnabled(tapCornersSwitch.IsOn);
+            GesturesPanel.Children.Add(tapCornersSwitch);
+
+            ToggleSwitch swipeSwitch = new ToggleSwitch
+            {
+                Header = "Mudar página com movimento de slide",
+                IsOn = ReaderPreferenceStore.GetSwipeEnabled(),
+            };
+            swipeSwitch.Toggled += (s, a) =>
+            {
+                ReaderPreferenceStore.SetSwipeEnabled(swipeSwitch.IsOn);
+                UpdateGestureMode();
+            };
+            GesturesPanel.Children.Add(swipeSwitch);
+        }
+
+        // — botões segmentados (tema/justificação) —
+
+        private void AddSegButton(StackPanel row, string label, string value, Action<string> onSelect)
+        {
+            Button button = new Button
+            {
+                Content = label,
+                Tag = value,
+                Style = (Style)Resources["SegButtonStyle"],
+                Margin = new Thickness(0, 0, 8, 0),
+            };
+            button.Click += (s, a) => onSelect(value);
+            row.Children.Add(button);
+        }
+
+        private static void RefreshSegRow(StackPanel row, string activeValue)
+        {
+            SolidColorBrush activeBackground = new SolidColorBrush(Colors.WhiteSmoke);
+            SolidColorBrush activeForeground = new SolidColorBrush(Color.FromArgb(0xFF, 0x22, 0x22, 0x22));
+            SolidColorBrush inactiveBackground = new SolidColorBrush(Color.FromArgb(0xFF, 0x55, 0x55, 0x55));
+            SolidColorBrush inactiveForeground = new SolidColorBrush(Colors.WhiteSmoke);
+
+            foreach (object child in row.Children)
+            {
+                Button button = child as Button;
+                if (button == null)
+                {
+                    continue;
+                }
+                bool active = (string)button.Tag == activeValue;
+                button.Background = active ? activeBackground : inactiveBackground;
+                button.Foreground = active ? activeForeground : inactiveForeground;
+            }
         }
 
         // — scripts de paginação —
@@ -595,19 +781,13 @@ namespace Sorvil.Views
             }
         }
 
-        // Margem de leitura em px CSS — o mesmo valor entra tanto no CSS
-        // injetado (padding do body) quanto nas contas de paginação/
-        // transform abaixo, senão o passo de cada "virada de página" fica
-        // dessincronizado da largura real de cada coluna e o texto
-        // desalinha aos poucos a cada capítulo.
-        private const int ReadingMarginPx = 18;
-
         private async Task<int> GetTotalPagesAsync()
         {
+            int margin = ReaderPreferenceStore.GetMarginPx();
             string script =
                 "(function() {" +
-                "var stepWidth = document.documentElement.clientWidth - (" + ReadingMarginPx + " * 2);" +
-                "var usableScroll = document.body.scrollWidth - (" + ReadingMarginPx + " * 2);" +
+                "var stepWidth = document.documentElement.clientWidth - (" + margin + " * 2);" +
+                "var usableScroll = document.body.scrollWidth - (" + margin + " * 2);" +
                 "return Math.max(1, Math.ceil(usableScroll / stepWidth));" +
                 "})();";
             string result = await InvokeAsync(script);
@@ -618,94 +798,19 @@ namespace Sorvil.Views
         private async Task GoToPageAsync(int pageIndex)
         {
             _pageIndexInChapter = pageIndex;
+            int margin = ReaderPreferenceStore.GetMarginPx();
             string script =
                 "(function() {" +
-                "var stepWidth = document.documentElement.clientWidth - (" + ReadingMarginPx + " * 2);" +
+                "var stepWidth = document.documentElement.clientWidth - (" + margin + " * 2);" +
                 "document.body.style.transform = 'translateX(-' + (" + pageIndex + " * stepWidth) + 'px)';" +
                 "})();";
             await InvokeAsync(script);
         }
 
-        // — ajustes de leitura (fonte, tema, brilho) —
-
-        private void TypographyButton_Click(object sender, RoutedEventArgs e)
-        {
-            StackPanel panel = new StackPanel { Padding = new Thickness(16), Width = 240 };
-
-            panel.Children.Add(new TextBlock { Text = "Tamanho da fonte", Margin = new Thickness(0, 0, 0, 8) });
-
-            StackPanel fontRow = new StackPanel { Orientation = Orientation.Horizontal };
-            Button smallerButton = new Button { Content = "A-", Margin = new Thickness(0, 0, 8, 0) };
-            smallerButton.Click += async (fontSender, fontArgs) => await AdjustFontSizeAsync(-10);
-            Button biggerButton = new Button { Content = "A+" };
-            biggerButton.Click += async (fontSender, fontArgs) => await AdjustFontSizeAsync(10);
-            fontRow.Children.Add(smallerButton);
-            fontRow.Children.Add(biggerButton);
-            panel.Children.Add(fontRow);
-
-            Flyout flyout = new Flyout { Content = panel };
-            flyout.ShowAt(TypographyButton);
-        }
-
-        private void BrightnessButton_Click(object sender, RoutedEventArgs e)
-        {
-            StackPanel panel = new StackPanel { Padding = new Thickness(16), Width = 240 };
-
-            panel.Children.Add(new TextBlock { Text = "Escurecer tela", Margin = new Thickness(0, 0, 0, 8) });
-            Slider dimSlider = new Slider
-            {
-                Minimum = 0,
-                Maximum = 80,
-                Value = ReaderPreferenceStore.GetDimLevelPercent(),
-                Margin = new Thickness(0, 0, 0, 20),
-            };
-            dimSlider.ValueChanged += (dimSender, dimArgs) =>
-            {
-                int level = (int)dimArgs.NewValue;
-                ReaderPreferenceStore.SetDimLevelPercent(level);
-                ApplyDimLevel();
-            };
-            panel.Children.Add(dimSlider);
-
-            panel.Children.Add(new TextBlock { Text = "Tema de leitura", Margin = new Thickness(0, 0, 0, 8) });
-            StackPanel themeRow = new StackPanel { Orientation = Orientation.Horizontal };
-            themeRow.Children.Add(CreateThemeButton("Claro", "light"));
-            themeRow.Children.Add(CreateThemeButton("Sépia", "sepia"));
-            themeRow.Children.Add(CreateThemeButton("Escuro", "dark"));
-            panel.Children.Add(themeRow);
-
-            Flyout flyout = new Flyout { Content = panel };
-            flyout.ShowAt(BrightnessButton);
-        }
-
-        private void ApplyDimLevel()
-        {
-            int level = ReaderPreferenceStore.GetDimLevelPercent();
-            DimOverlay.Opacity = level / 100.0;
-        }
-
-        private Button CreateThemeButton(string label, string themeKey)
-        {
-            Button button = new Button { Content = label, Margin = new Thickness(0, 0, 8, 0) };
-            button.Click += async (sender, args) =>
-            {
-                ReaderPreferenceStore.SetTheme(themeKey);
-                await ReapplyStyleAndRepaginateAsync();
-            };
-            return button;
-        }
-
-        private async Task AdjustFontSizeAsync(int delta)
-        {
-            int current = ReaderPreferenceStore.GetFontSizePercent();
-            int updated = Math.Max(70, Math.Min(350, current + delta));
-            ReaderPreferenceStore.SetFontSizePercent(updated);
-            await ReapplyStyleAndRepaginateAsync();
-        }
-
-        // Mudar fonte/tema muda quantas páginas cabem no capítulo — por
-        // isso repagina do zero (volta pra página 0) em vez de só reaplicar
-        // o CSS mantendo o índice de página antigo, que ficaria errado.
+        // Mudar fonte/tema/espaçamento/margem muda quantas páginas cabem
+        // no capítulo — por isso repagina do zero (volta pra página 0) em
+        // vez de só reaplicar o CSS mantendo o índice de página antigo,
+        // que ficaria errado.
         private async Task ReapplyStyleAndRepaginateAsync()
         {
             await ApplyReaderStyleAsync();
@@ -719,6 +824,9 @@ namespace Sorvil.Views
         {
             int fontSize = ReaderPreferenceStore.GetFontSizePercent();
             string theme = ReaderPreferenceStore.GetTheme();
+            double lineSpacing = ReaderPreferenceStore.GetLineSpacing();
+            int margin = ReaderPreferenceStore.GetMarginPx();
+            string justification = ReaderPreferenceStore.GetJustification();
 
             string background;
             string foreground;
@@ -748,14 +856,24 @@ namespace Sorvil.Views
             // tela real e caber duas em vez de uma. Medindo por dentro,
             // column-width sempre bate exato com a largura de verdade.
             //
-            // A margem de leitura (ReadingMarginPx) vira padding do body,
-            // não Margin do WebView no XAML — um Margin ali deixava a cor
-            // de fundo da Page (não a do tema de leitura escolhido)
-            // visível como uma borda ao redor do texto, parecendo o livro
-            // "dentro de um iframe" menor que a tela. column-width já sai
-            // descontando essa margem duas vezes (esquerda+direita) pra
-            // bater com o mesmo cálculo usado em GetTotalPagesAsync/
-            // GoToPageAsync.
+            // Mesmo assim, arredondamento de sub-pixel (o layout real do
+            // WebView pode ter uma fração de pixel de diferença do inteiro
+            // que clientWidth reporta) ainda deixava o motor decidir criar
+            // uma segunda coluna bem estreita — visível como um "resto de
+            // texto" à direita, mais perceptível quanto menor a fonte
+            // (mais linhas cabem naquela fresta estreita). column-count:1
+            // força exatamente uma coluna sempre, não importa o quão perto
+            // column-width chegue do valor exato — column-width continua
+            // declarado só pra manter o cálculo de paginação em
+            // GetTotalPagesAsync/GoToPageAsync consistente com o que a
+            // coluna única realmente ocupa.
+            //
+            // A margem de leitura vira padding do body, não Margin do
+            // WebView no XAML — um Margin ali deixava a cor de fundo da
+            // Page (não a do tema de leitura escolhido) visível como uma
+            // borda ao redor do texto. column-width já sai descontando
+            // essa margem duas vezes (esquerda+direita) pra bater com o
+            // mesmo cálculo usado em GetTotalPagesAsync/GoToPageAsync.
             //
             // Fundo é forçado tanto em html quanto em body, e qualquer
             // elemento interno tem o próprio fundo zerado (background-color:
@@ -766,7 +884,7 @@ namespace Sorvil.Views
                 "(function() {" +
                 "var pageWidth = document.documentElement.clientWidth;" +
                 "var pageHeight = document.documentElement.clientHeight;" +
-                "var margin = " + ReadingMarginPx + ";" +
+                "var margin = " + margin + ";" +
                 "var style = document.getElementById('sorvil-reader-style');" +
                 "if (!style) { style = document.createElement('style'); style.id = 'sorvil-reader-style'; document.head.appendChild(style); }" +
                 "style.innerHTML = " +
@@ -774,9 +892,11 @@ namespace Sorvil.Views
                 "'body { margin:0 !important; " +
                 "font-size: " + fontSize + "% !important; " +
                 "background-color: " + background + " !important; " +
-                "line-height: 1.5 !important; " +
+                "line-height: " + lineSpacing.ToString(System.Globalization.CultureInfo.InvariantCulture) + " !important; " +
+                "text-align: " + justification + " !important; " +
                 "column-gap: 0px !important; " +
                 "column-fill: auto !important; " +
+                "column-count: 1 !important; " +
                 "overflow: hidden !important; " +
                 "} ' +" +
                 "'* { color: " + foreground + " !important; background-color: transparent !important; } ' +" +

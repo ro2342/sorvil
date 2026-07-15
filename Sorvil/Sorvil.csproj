@@ -65,7 +65,6 @@
     <Compile Include="Models\BookRecord.cs" />
     <Compile Include="Models\BookRecordItemViewModel.cs" />
 
-    <Compile Include="Services\ThemeHelper.cs" />
     <Compile Include="Services\ThemeModeService.cs" />
     <Compile Include="Services\ThemePreferenceStore.cs" />
     <Compile Include="Services\CredentialService.cs" />

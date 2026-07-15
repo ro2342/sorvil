@@ -13,6 +13,9 @@ namespace Sorvil.Services
         private const string TapCornersKey = "ReaderTapCornersEnabled";
         private const string SwipeKey = "ReaderSwipeEnabled";
         private const string PinchToZoomKey = "ReaderPinchToZoomEnabled";
+        private const string LineSpacingKey = "ReaderLineSpacing";
+        private const string MarginPxKey = "ReaderMarginPx";
+        private const string JustificationKey = "ReaderJustification";
 
         public static int GetFontSizePercent()
         {
@@ -88,6 +91,42 @@ namespace Sorvil.Services
         public static void SetPinchToZoomEnabled(bool enabled)
         {
             ApplicationData.Current.LocalSettings.Values[PinchToZoomKey] = enabled;
+        }
+
+        public static double GetLineSpacing()
+        {
+            object value = ApplicationData.Current.LocalSettings.Values[LineSpacingKey];
+            return value is double spacing ? spacing : 1.5;
+        }
+
+        public static void SetLineSpacing(double spacing)
+        {
+            ApplicationData.Current.LocalSettings.Values[LineSpacingKey] = spacing;
+        }
+
+        // Margem de leitura em px CSS (esquerda+direita) -- usada tanto no
+        // padding do texto quanto nas contas de paginação/transform.
+        public static int GetMarginPx()
+        {
+            object value = ApplicationData.Current.LocalSettings.Values[MarginPxKey];
+            return value is int margin ? margin : 18;
+        }
+
+        public static void SetMarginPx(int margin)
+        {
+            ApplicationData.Current.LocalSettings.Values[MarginPxKey] = margin;
+        }
+
+        // "left" ou "justify"
+        public static string GetJustification()
+        {
+            object value = ApplicationData.Current.LocalSettings.Values[JustificationKey];
+            return value as string ?? "left";
+        }
+
+        public static void SetJustification(string justification)
+        {
+            ApplicationData.Current.LocalSettings.Values[JustificationKey] = justification;
         }
     }
 }
