@@ -28,7 +28,12 @@
                  mesmo padrão de Kindle/Freda. Ficam por cima de propósito:
                  assim o toque nunca vira rolagem/seleção nativa do
                  WebView, só controla a paginação via script. -->
-            <Grid Background="Transparent">
+            <Grid x:Name="GestureZoneGrid"
+                  Background="Transparent"
+                  ManipulationMode="System"
+                  ManipulationStarted="GestureZoneGrid_ManipulationStarted"
+                  ManipulationDelta="GestureZoneGrid_ManipulationDelta"
+                  ManipulationCompleted="GestureZoneGrid_ManipulationCompleted">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="1*" />
                     <ColumnDefinition Width="1.4*" />

@@ -40,6 +40,8 @@ namespace Sorvil.Views
         private bool _chromeVisible;
         private Flyout _tocFlyout;
         private BookRecord _record;
+        private double _manipulationTranslationX;
+        private double _manipulationScale = 1.0;
 
         public ReaderEpubPage()
         {
@@ -72,6 +74,7 @@ namespace Sorvil.Views
                 BookTitleText.Text = _record.Title;
                 BookAuthorText.Text = _record.Author;
                 ApplyDimLevel();
+                UpdateGestureMode();
 
                 StorageFolder booksFolder = await ApplicationData.Current.LocalFolder.GetFolderAsync("Books");
                 StorageFile epubFile = await booksFolder.GetFileAsync(_record.LocalFilePath);
@@ -367,12 +370,93 @@ namespace Sorvil.Views
 
         private async void PreviousZone_Tapped(object sender, TappedRoutedEventArgs e)
         {
+            if (!ReaderPreferenceStore.GetTapCornersEnabled())
+            {
+                return;
+            }
             await GoToPreviousAsync();
         }
 
         private async void NextZone_Tapped(object sender, TappedRoutedEventArgs e)
         {
+            if (!ReaderPreferenceStore.GetTapCornersEnabled())
+            {
+                return;
+            }
             await GoToNextAsync();
+        }
+
+        // — gestos opcionais: arrastar vira página, pinça ajusta a fonte —
+        // Só habilitados de verdade (ManipulationMode diferente de
+        // "System") quando o usuário liga um dos dois no flyout de
+        // gestos — por padrão a zona de toque continua se comportando
+        // exatamente como antes (só Tapped, sem processar manipulação
+        // nenhuma), pra não arriscar interferir no toque simples que já
+        // era a experiência padrão testada no aparelho.
+        private void UpdateGestureMode()
+        {
+            bool swipeEnabled = ReaderPreferenceStore.GetSwipeEnabled();
+            bool pinchEnabled = ReaderPreferenceStore.GetPinchToZoomEnabled();
+
+            if (!swipeEnabled && !pinchEnabled)
+            {
+                GestureZoneGrid.ManipulationMode = ManipulationModes.System;
+                return;
+            }
+
+            ManipulationModes modes = ManipulationModes.None;
+            if (swipeEnabled)
+            {
+                modes |= ManipulationModes.TranslateX;
+            }
+            if (pinchEnabled)
+            {
+                modes |= ManipulationModes.Scale;
+            }
+            GestureZoneGrid.ManipulationMode = modes;
+        }
+
+        private void GestureZoneGrid_ManipulationStarted(object sender, ManipulationStartedRoutedEventArgs e)
+        {
+            _manipulationTranslationX = 0;
+            _manipulationScale = 1.0;
+        }
+
+        private void GestureZoneGrid_ManipulationDelta(object sender, ManipulationDeltaRoutedEventArgs e)
+        {
+            _manipulationTranslationX += e.Delta.Translation.X;
+            if (e.Delta.Scale > 0)
+            {
+                _manipulationScale *= e.Delta.Scale;
+            }
+        }
+
+        private const double SwipeThresholdPixels = 60;
+        private const double PinchScaleThreshold = 0.08;
+
+        private async void GestureZoneGrid_ManipulationCompleted(object sender, ManipulationCompletedRoutedEventArgs e)
+        {
+            bool isPinch = Math.Abs(_manipulationScale - 1.0) > PinchScaleThreshold;
+
+            if (isPinch && ReaderPreferenceStore.GetPinchToZoomEnabled())
+            {
+                int delta = (int)Math.Round((_manipulationScale - 1.0) * 100);
+                if (delta != 0)
+                {
+                    await AdjustFontSizeAsync(delta);
+                }
+            }
+            else if (!isPinch && ReaderPreferenceStore.GetSwipeEnabled() && Math.Abs(_manipulationTranslationX) > SwipeThresholdPixels)
+            {
+                if (_manipulationTranslationX < 0)
+                {
+                    await GoToNextAsync();
+                }
+                else
+                {
+                    await GoToPreviousAsync();
+                }
+            }
         }
 
         private void ToggleChrome_Tapped(object sender, TappedRoutedEventArgs e)
@@ -431,7 +515,10 @@ namespace Sorvil.Views
                 IsOn = ReaderPreferenceStore.GetSwipeEnabled(),
             };
             swipeSwitch.Toggled += (swipeSender, swipeArgs) =>
+            {
                 ReaderPreferenceStore.SetSwipeEnabled(swipeSwitch.IsOn);
+                UpdateGestureMode();
+            };
             panel.Children.Add(swipeSwitch);
 
             ToggleSwitch pinchSwitch = new ToggleSwitch
@@ -440,7 +527,10 @@ namespace Sorvil.Views
                 IsOn = ReaderPreferenceStore.GetPinchToZoomEnabled(),
             };
             pinchSwitch.Toggled += (pinchSender, pinchArgs) =>
+            {
                 ReaderPreferenceStore.SetPinchToZoomEnabled(pinchSwitch.IsOn);
+                UpdateGestureMode();
+            };
             panel.Children.Add(pinchSwitch);
 
             Flyout flyout = new Flyout { Content = panel };
