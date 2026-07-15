@@ -1,0 +1,20 @@
+<Directives xmlns="http://schemas.microsoft.com/netfx/2013/01/metadata">
+
+  <!-- Este arquivo diz pro compilador .NET Native (usado no build Release
+       do CI) quais tipos/métodos são usados de forma dinâmica (cast,
+       reflexão, interop WinRT) e não podem ter os metadados cortados na
+       compilação estática. Sem isso, casts internos do próprio framework
+       (ex.: "Window.Current.Content as Frame" em App.xaml.cs) podem
+       quebrar em runtime só no aparelho — MissingMetadataException /
+       InvalidCastException "InvalidCast_WinRT" — mesmo com o build do CI
+       passando 100% verde, porque essa checagem só acontece quando o
+       código de fato executa, não em tempo de compilação.
+       "*Application*" com Dynamic="Required All" mantém os metadados
+       completos pra tudo que pertence ao próprio app (não pros pacotes
+       do framework), resolvendo a classe inteira desse tipo de erro. -->
+
+  <Application>
+    <Assembly Name="*Application*" Dynamic="Required All" />
+  </Application>
+
+</Directives>

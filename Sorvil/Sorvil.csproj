@@ -158,6 +158,9 @@
     </SDKReference>
   </ItemGroup>
   <ItemGroup>
+    <RdXmlFile Include="Properties\Default.rd.xml" />
+  </ItemGroup>
+  <ItemGroup>
     <!--
       Wildcard em vez de listar cada escala (gerado por
       generate_tile_assets.py a partir de logo.svg, ver README.md).
