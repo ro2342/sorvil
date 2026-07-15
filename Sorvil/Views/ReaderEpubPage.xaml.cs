@@ -408,15 +408,42 @@ namespace Sorvil.Views
 
         private void GestureSettingsButton_Click(object sender, RoutedEventArgs e)
         {
-            Flyout flyout = new Flyout
+            StackPanel panel = new StackPanel { Padding = new Thickness(16), Width = 260 };
+            panel.Children.Add(new TextBlock
             {
-                Content = new TextBlock
-                {
-                    Text = "Ajustes de gesto (toque nas bordas, arrastar, pinça) chegam em breve.",
-                    TextWrapping = TextWrapping.Wrap,
-                    MaxWidth = 240,
-                },
+                Text = "Gestos de navegação",
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 0, 0, 12),
+            });
+
+            ToggleSwitch tapCornersSwitch = new ToggleSwitch
+            {
+                Header = "Tocar nas bordas vira página",
+                IsOn = ReaderPreferenceStore.GetTapCornersEnabled(),
             };
+            tapCornersSwitch.Toggled += (tapSender, tapArgs) =>
+                ReaderPreferenceStore.SetTapCornersEnabled(tapCornersSwitch.IsOn);
+            panel.Children.Add(tapCornersSwitch);
+
+            ToggleSwitch swipeSwitch = new ToggleSwitch
+            {
+                Header = "Arrastar o dedo vira página",
+                IsOn = ReaderPreferenceStore.GetSwipeEnabled(),
+            };
+            swipeSwitch.Toggled += (swipeSender, swipeArgs) =>
+                ReaderPreferenceStore.SetSwipeEnabled(swipeSwitch.IsOn);
+            panel.Children.Add(swipeSwitch);
+
+            ToggleSwitch pinchSwitch = new ToggleSwitch
+            {
+                Header = "Pinça ajusta o tamanho da fonte",
+                IsOn = ReaderPreferenceStore.GetPinchToZoomEnabled(),
+            };
+            pinchSwitch.Toggled += (pinchSender, pinchArgs) =>
+                ReaderPreferenceStore.SetPinchToZoomEnabled(pinchSwitch.IsOn);
+            panel.Children.Add(pinchSwitch);
+
+            Flyout flyout = new Flyout { Content = panel };
             flyout.ShowAt(GestureSettingsButton);
         }
 
