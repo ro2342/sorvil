@@ -60,11 +60,14 @@
     <Compile Include="Properties\AssemblyInfo.cs" />
 
     <Compile Include="Models\ServerProfile.cs" />
+    <Compile Include="Models\OpdsEntry.cs" />
+    <Compile Include="Models\LibraryItemViewModel.cs" />
 
     <Compile Include="Services\ThemeHelper.cs" />
     <Compile Include="Services\CredentialService.cs" />
     <Compile Include="Services\ServerConfigStore.cs" />
     <Compile Include="Services\OpdsClient.cs" />
+    <Compile Include="Services\CoverCacheService.cs" />
 
     <Compile Include="Views\HomePage.xaml.cs">
       <DependentUpon>HomePage.xaml</DependentUpon>

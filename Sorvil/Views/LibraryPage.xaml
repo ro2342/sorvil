@@ -7,11 +7,91 @@
     mc:Ignorable="d"
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
 
-    <StackPanel Padding="20,24,20,20">
-        <TextBlock Text="Biblioteca" Style="{StaticResource TitleTextBlockStyle}" />
-        <TextBlock Text="O catálogo do seu Calibre-Web (com capas, busca e paginação) aparece aqui."
-                   Style="{StaticResource BodyTextBlockStyle}"
-                   TextWrapping="Wrap"
-                   Margin="0,12,0,0" />
-    </StackPanel>
+    <Grid Padding="16,16,16,0">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock x:Name="FeedTitleText"
+                   Grid.Row="0"
+                   Text="Biblioteca"
+                   Style="{StaticResource TitleTextBlockStyle}"
+                   Margin="0,8,0,12" />
+
+        <Grid Grid.Row="1" Margin="0,0,0,12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBox x:Name="SearchBox"
+                     Grid.Column="0"
+                     PlaceholderText="Buscar por título ou autor"
+                     KeyDown="SearchBox_KeyDown" />
+            <Button x:Name="SearchButton" Grid.Column="1" Content="Buscar" Click="SearchButton_Click" Margin="8,0,0,0" />
+        </Grid>
+
+        <Grid Grid.Row="2">
+            <ProgressRing x:Name="LoadingRing"
+                          IsActive="False"
+                          Width="32" Height="32"
+                          HorizontalAlignment="Center"
+                          VerticalAlignment="Center" />
+
+            <TextBlock x:Name="ErrorText"
+                       Visibility="Collapsed"
+                       TextWrapping="Wrap"
+                       Style="{StaticResource BodyTextBlockStyle}"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center"
+                       Margin="24" />
+
+            <GridView x:Name="BooksGrid"
+                      Visibility="Collapsed"
+                      SelectionMode="None"
+                      IsItemClickEnabled="True"
+                      ItemClick="BooksGrid_ItemClick">
+                <GridView.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Width="120" Margin="4">
+                            <Border Background="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}" Height="160">
+                                <Image Source="{Binding Cover, Mode=OneWay}" Stretch="Uniform" />
+                            </Border>
+                            <TextBlock Text="{Binding Title}"
+                                       TextWrapping="Wrap"
+                                       TextTrimming="CharacterEllipsis"
+                                       MaxLines="2"
+                                       Style="{StaticResource CaptionTextBlockStyle}"
+                                       Margin="0,4,0,0" />
+                        </StackPanel>
+                    </DataTemplate>
+                </GridView.ItemTemplate>
+            </GridView>
+
+            <ListView x:Name="FoldersList"
+                      Visibility="Collapsed"
+                      SelectionMode="None"
+                      IsItemClickEnabled="True"
+                      ItemClick="FoldersList_ItemClick">
+                <ListView.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Orientation="Horizontal" Padding="0,10">
+                            <FontIcon Glyph="&#xE76C;" FontSize="16" VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding Title}" Margin="16,0,0,0" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
+        </Grid>
+
+        <Button x:Name="NextPageButton"
+                Grid.Row="3"
+                Content="Próxima página"
+                Click="NextPageButton_Click"
+                Visibility="Collapsed"
+                HorizontalAlignment="Center"
+                Margin="0,12,0,16" />
+    </Grid>
 </Page>

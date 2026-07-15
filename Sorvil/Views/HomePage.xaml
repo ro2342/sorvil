@@ -27,11 +27,53 @@
                 </StackPanel>
             </Border>
 
+            <StackPanel x:Name="RecentSection" Visibility="Collapsed" Margin="0,20,0,0">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0"
+                               Text="Adicionados recentemente"
+                               Style="{StaticResource SubtitleTextBlockStyle}"
+                               VerticalAlignment="Center" />
+                    <HyperlinkButton Grid.Column="1" Content="Ver tudo" Click="ViewLibrary_Click" VerticalAlignment="Center" />
+                </Grid>
+
+                <ScrollViewer HorizontalScrollMode="Enabled"
+                              VerticalScrollMode="Disabled"
+                              HorizontalScrollBarVisibility="Auto"
+                              Margin="0,8,0,0">
+                    <ItemsControl x:Name="RecentItems">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Width="100" Margin="0,0,12,0">
+                                    <Border Background="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}" Height="140">
+                                        <Image Source="{Binding Cover, Mode=OneWay}" Stretch="Uniform" />
+                                    </Border>
+                                    <TextBlock Text="{Binding Title}"
+                                               TextWrapping="Wrap"
+                                               TextTrimming="CharacterEllipsis"
+                                               MaxLines="2"
+                                               Style="{StaticResource CaptionTextBlockStyle}"
+                                               Margin="0,4,0,0" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </StackPanel>
+
             <TextBlock x:Name="ReadyText"
-                       Text="Capas dos livros e continuação de leitura aparecem aqui."
+                       Text="Sua biblioteca ainda não tem nada pra mostrar aqui — toque em Biblioteca no menu pra procurar."
                        Style="{StaticResource BodyTextBlockStyle}"
                        TextWrapping="Wrap"
-                       Margin="0,16,0,0"
+                       Margin="0,20,0,0"
                        Visibility="Collapsed" />
         </StackPanel>
     </ScrollViewer>
