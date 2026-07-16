@@ -1,6 +1,7 @@
 using Sorvil.Models;
 using Sorvil.Services;
 using System;
+using System.Threading.Tasks;
 using Windows.Storage;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
@@ -87,10 +88,16 @@ namespace Sorvil.Views
 
         // — Sobre / Atualização —
 
+        // Arquivo já baixado, pronto pra instalar — enquanto for null, o
+        // botão (se visível) tenta baixar; assim que o download termina,
+        // vira só "abrir o instalador", sem baixar de novo.
+        private StorageFile _downloadedUpdateFile;
+
         private async void CheckUpdate_Click(object sender, RoutedEventArgs e)
         {
             UpdateStatusText.Text = "Checando...";
-            DownloadUpdateButton.Visibility = Visibility.Collapsed;
+            UpdateActionButton.Visibility = Visibility.Collapsed;
+            _downloadedUpdateFile = null;
 
             UpdateCheckResult result = await UpdateCheckService.CheckAsync();
             if (!result.Success)
@@ -99,23 +106,35 @@ namespace Sorvil.Views
                 return;
             }
 
-            if (result.UpdateAvailable)
-            {
-                UpdateStatusText.Text = "Nova versão disponível: " + result.Latest;
-                DownloadUpdateButton.Visibility = Visibility.Visible;
-            }
-            else
+            if (!result.UpdateAvailable)
             {
                 UpdateStatusText.Text = "Você já está na versão mais recente.";
+                return;
             }
+
+            // Achou atualização — baixa na hora, sem exigir um segundo
+            // toque só pra iniciar o download; só pede um toque a mais
+            // (no botão) quando já tem o instalador pronto.
+            UpdateStatusText.Text = "Nova versão disponível: " + result.Latest + " — baixando...";
+            await DownloadUpdateAsync();
         }
 
-        private async void DownloadUpdate_Click(object sender, RoutedEventArgs e)
+        private async void UpdateActionButton_Click(object sender, RoutedEventArgs e)
         {
-            DownloadUpdateButton.IsEnabled = false;
+            if (_downloadedUpdateFile != null)
+            {
+                UpdateStatusText.Text = "Abrindo o instalador...";
+                await Windows.System.Launcher.LaunchFileAsync(_downloadedUpdateFile);
+                return;
+            }
+            await DownloadUpdateAsync();
+        }
+
+        private async Task DownloadUpdateAsync()
+        {
+            UpdateActionButton.IsEnabled = false;
             UpdateProgress.Visibility = Visibility.Visible;
             UpdateProgress.Value = 0;
-            UpdateStatusText.Text = "Baixando...";
 
             try
             {
@@ -124,20 +143,26 @@ namespace Sorvil.Views
                 if (file == null)
                 {
                     UpdateStatusText.Text = "Download cancelado (nenhuma pasta escolhida).";
+                    UpdateActionButton.Content = "Baixar de novo";
+                    UpdateActionButton.Visibility = Visibility.Visible;
                 }
                 else
                 {
-                    UpdateStatusText.Text = "Baixado em " + file.Path + ". Abrindo o instalador...";
-                    await Windows.System.Launcher.LaunchFileAsync(file);
+                    _downloadedUpdateFile = file;
+                    UpdateStatusText.Text = "Baixado! Toque em \"Instalar\" pra atualizar.";
+                    UpdateActionButton.Content = "Instalar";
+                    UpdateActionButton.Visibility = Visibility.Visible;
                 }
             }
             catch (Exception ex)
             {
                 UpdateStatusText.Text = "Erro no download: " + ex.Message;
+                UpdateActionButton.Content = "Tentar de novo";
+                UpdateActionButton.Visibility = Visibility.Visible;
             }
             finally
             {
-                DownloadUpdateButton.IsEnabled = true;
+                UpdateActionButton.IsEnabled = true;
                 UpdateProgress.Visibility = Visibility.Collapsed;
             }
         }

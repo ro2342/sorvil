@@ -8,6 +8,7 @@ using Windows.Data.Pdf;
 using Windows.Storage;
 using Windows.Storage.Streams;
 using Windows.UI.Core;
+using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Media;
 using Windows.UI.Xaml.Media.Imaging;
@@ -85,6 +86,12 @@ namespace Sorvil.Views
                 BookRecord record = await LibraryDataStore.GetAsync(_bookId);
                 if (record == null)
                 {
+                    ShowLoadError("Livro não encontrado.");
+                    return;
+                }
+                if (string.IsNullOrEmpty(record.LocalFilePath))
+                {
+                    ShowLoadError("Esse livro não tem um arquivo baixado válido — apague e baixe de novo.");
                     return;
                 }
 
@@ -110,10 +117,20 @@ namespace Sorvil.Views
                 await RenderAroundAsync(startIndex);
                 UpdateIndicator(startIndex);
             }
+            catch (Exception ex)
+            {
+                ShowLoadError("Erro ao abrir o PDF: " + ex.Message);
+            }
             finally
             {
                 LoadingRing.IsActive = false;
             }
+        }
+
+        private void ShowLoadError(string message)
+        {
+            LoadErrorText.Text = message;
+            LoadErrorText.Visibility = Visibility.Visible;
         }
 
         private void PagesFlipView_SelectionChanged(object sender, SelectionChangedEventArgs e)

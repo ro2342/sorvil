@@ -158,6 +158,11 @@ namespace Sorvil.Views
                     ShowLoadError("Livro não encontrado.");
                     return;
                 }
+                if (string.IsNullOrEmpty(_record.LocalFilePath))
+                {
+                    ShowLoadError("Esse livro não tem um arquivo baixado válido — apague e baixe de novo.");
+                    return;
+                }
 
                 IndexHeaderTitleText.Text = _record.Title;
                 BottomCaptionText.Text = string.IsNullOrEmpty(_record.Author)

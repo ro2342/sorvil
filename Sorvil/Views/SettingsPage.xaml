@@ -69,9 +69,9 @@
                            TextWrapping="Wrap"
                            Margin="0,0,0,12" />
 
-                <Button x:Name="DownloadUpdateButton"
-                        Content="Baixar atualização"
-                        Click="DownloadUpdate_Click"
+                <Button x:Name="UpdateActionButton"
+                        Content="Instalar"
+                        Click="UpdateActionButton_Click"
                         HorizontalAlignment="Left"
                         Visibility="Collapsed"
                         Margin="0,0,0,12" />
