@@ -217,6 +217,12 @@ namespace Sorvil.Views
             }
         }
 
+        protected override void OnNavigatedFrom(NavigationEventArgs e)
+        {
+            base.OnNavigatedFrom(e);
+            _statePollingActive = false;
+        }
+
         protected override async void OnNavigatedTo(NavigationEventArgs e)
         {
             base.OnNavigatedTo(e);
@@ -313,6 +319,8 @@ namespace Sorvil.Views
                 return;
             }
 
+            StartStatePollingAsync();
+
             string step = "lendo arquivo do livro";
             try
             {
@@ -383,6 +391,15 @@ namespace Sorvil.Views
         // Mensagens do lado JS (reader-bridge.js) — sempre um JSON com
         // "type". Qualquer coisa que não reconhece é ignorada em vez de
         // derrubar o leitor.
+        // window.external.notify() (ScriptNotify) não chegava de volta
+        // pro C# de forma confiável pra conteúdo carregado via
+        // NavigateToString — confirmado na prática (envio de pedaços do
+        // livro via InvokeScriptAsync C#->JS funcionava normalmente;
+        // nada do lado JS->C# chegava depois disso). Continua vivo aqui
+        // por garantia (não custa nada), mas quem sustenta o app de
+        // verdade agora é StartStatePollingAsync, que "puxa" o mesmo
+        // estado via SorvilReader.getState() pelo canal C#->JS já
+        // provado confiável, em vez de esperar o JS empurrar.
         private async void ContentWebView_ScriptNotify(object sender, NotifyEventArgs e)
         {
             JsonObject msg;
@@ -394,7 +411,61 @@ namespace Sorvil.Views
             {
                 return;
             }
+            await ProcessBridgeMessageAsync(msg);
+        }
 
+        private int _lastSeenStateSeq = -1;
+        private bool _statePollingActive;
+
+        // Roda enquanto a página estiver aberta: pergunta pro JS "qual é
+        // seu estado agora" a cada 400ms e só reage quando o número de
+        // sequência muda — cobre tanto o carregamento inicial do livro
+        // quanto reposicionamentos (virar página, índice) durante a
+        // leitura inteira, sem depender do ScriptNotify nenhuma vez.
+        private async void StartStatePollingAsync()
+        {
+            if (_statePollingActive)
+            {
+                return;
+            }
+            _statePollingActive = true;
+
+            while (_statePollingActive)
+            {
+                await Task.Delay(400);
+                if (!_statePollingActive)
+                {
+                    break;
+                }
+
+                string json = await InvokeAsync("SorvilReader.getState", new string[0]);
+                if (string.IsNullOrEmpty(json))
+                {
+                    continue;
+                }
+
+                JsonObject state;
+                try
+                {
+                    state = JsonObject.Parse(json);
+                }
+                catch (Exception)
+                {
+                    continue;
+                }
+
+                int seq = (int)state.GetNamedNumber("seq", 0);
+                if (seq == _lastSeenStateSeq)
+                {
+                    continue;
+                }
+                _lastSeenStateSeq = seq;
+                await ProcessBridgeMessageAsync(state);
+            }
+        }
+
+        private async Task ProcessBridgeMessageAsync(JsonObject msg)
+        {
             string type = msg.GetNamedString("type", string.Empty);
             switch (type)
             {

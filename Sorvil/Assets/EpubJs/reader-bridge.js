@@ -15,7 +15,30 @@
   var book = null;
   var rendition = null;
 
+  // window.external.notify() (o canal JS->C# via ScriptNotify) não
+  // chegava de volta pro C# de forma confiável pra conteúdo carregado
+  // via NavigateToString — confirmado na prática (envio de pedaços do
+  // livro via InvokeScriptAsync, C#->JS, funcionava normalmente; nada
+  // do lado JS->C# nunca chegava). Em vez de depender só do "empurrar"
+  // via notify, todo evento TAMBÉM atualiza um estado global com número
+  // de sequência crescente — o C# "puxa" isso periodicamente chamando
+  // SorvilReader.getState() via InvokeScriptAsync (o mesmo canal
+  // C#->JS, já provado confiável). notify() continua sendo chamado
+  // também, por garantia — não custa nada se às vezes funcionar.
+  var _state = { seq: 0 };
+
+  function pushState(partial) {
+    var next = { seq: _state.seq + 1 };
+    for (var key in partial) {
+      if (Object.prototype.hasOwnProperty.call(partial, key)) {
+        next[key] = partial[key];
+      }
+    }
+    _state = next;
+  }
+
   function notify(payload) {
+    pushState(payload);
     try {
       if (window.external && typeof window.external.notify === "function") {
         window.external.notify(JSON.stringify(payload));
@@ -260,6 +283,13 @@
       } catch (err) {
         notify({ type: "error", message: "Falha ao aplicar estilo: " + String(err && err.message ? err.message : err) });
       }
+    },
+
+    // Chamado pelo C# via InvokeScriptAsync a cada intervalo — ver
+    // comentário em pushState. Devolve o último estado (com "seq") como
+    // JSON; o C# só reage quando "seq" muda.
+    getState: function () {
+      return JSON.stringify(_state);
     },
   };
 })();
