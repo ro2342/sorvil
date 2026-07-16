@@ -38,7 +38,7 @@ namespace Sorvil.Views
     // aparelho real (ver TryNavigateToReaderBootstrap). Depois que esse
     // bootstrap termina de carregar (ContentWebView_NavigationCompleted),
     // lemos o .epub baixado, codificamos em base64 e chamamos
-    // SorvilReader.openBook(base64, cfi, styleJson) via InvokeScriptAsync
+    // sorvilFinishBook(base64, cfi, styleJson) via InvokeScriptAsync
     // — o arquivo inteiro vai como argumento, não como URL pro epub.js
     // buscar sozinho, porque não dava pra confiar que fetch() atravessa
     // entre origens de conteúdo local dessa WebView sem poder testar num
@@ -364,20 +364,20 @@ namespace Sorvil.Views
                 int chunkCount = (base64.Length + ChunkSize - 1) / ChunkSize;
                 _pendingChunkCount = chunkCount;
                 step = "enviando o livro pro leitor (pedaço 0/" + chunkCount + ")";
-                await InvokeAsync("SorvilReader.beginBook", new[] { chunkCount.ToString() });
+                await InvokeAsync("sorvilBeginBook", new[] { chunkCount.ToString() });
                 int chunkIndex = 0;
                 for (int offset = 0; offset < base64.Length; offset += ChunkSize)
                 {
                     int length = Math.Min(ChunkSize, base64.Length - offset);
                     string chunk = base64.Substring(offset, length);
-                    await InvokeAsync("SorvilReader.appendBookChunk", new[] { chunk });
+                    await InvokeAsync("sorvilAppendBookChunk", new[] { chunk });
                     chunkIndex++;
                     step = "enviando o livro pro leitor (pedaço " + chunkIndex + "/" + chunkCount + ")";
                 }
 
                 step = "abrindo o livro no epub.js";
                 string styleJson = BuildStyleJson();
-                await InvokeAsync("SorvilReader.finishBook", new[] { _record.ReadingPositionJson ?? string.Empty, styleJson });
+                await InvokeAsync("sorvilFinishBook", new[] { _record.ReadingPositionJson ?? string.Empty, styleJson });
             }
             catch (Exception ex)
             {
@@ -400,7 +400,7 @@ namespace Sorvil.Views
         // nada do lado JS->C# chegava depois disso). Continua vivo aqui
         // por garantia (não custa nada), mas quem sustenta o app de
         // verdade agora é StartStatePollingAsync, que "puxa" o mesmo
-        // estado via SorvilReader.getState() pelo canal C#->JS já
+        // estado via sorvilGetState() pelo canal C#->JS já
         // provado confiável, em vez de esperar o JS empurrar.
         private async void ContentWebView_ScriptNotify(object sender, NotifyEventArgs e)
         {
@@ -440,7 +440,7 @@ namespace Sorvil.Views
                     break;
                 }
 
-                string json = await InvokeAsync("SorvilReader.getState", new string[0]);
+                string json = await InvokeAsync("sorvilGetState", new string[0]);
                 if (string.IsNullOrEmpty(json))
                 {
                     continue;
@@ -598,7 +598,7 @@ namespace Sorvil.Views
             ApplyReaderChromeState();
             if (entry != null)
             {
-                await InvokeAsync("SorvilReader.goToHref", new[] { entry.Href });
+                await InvokeAsync("sorvilGoToHref", new[] { entry.Href });
             }
         }
 
@@ -714,12 +714,12 @@ namespace Sorvil.Views
 
         private async Task GoToNextAsync()
         {
-            await InvokeAsync("SorvilReader.next", new string[0]);
+            await InvokeAsync("sorvilNext", new string[0]);
         }
 
         private async Task GoToPreviousAsync()
         {
-            await InvokeAsync("SorvilReader.prev", new string[0]);
+            await InvokeAsync("sorvilPrev", new string[0]);
         }
 
         // Os botões de "retroceder/avançar" do scrubber dão um pequeno
@@ -1191,7 +1191,7 @@ namespace Sorvil.Views
                 return;
             }
             string styleJson = BuildStyleJson();
-            await InvokeAsync("SorvilReader.setStyle", new[] { styleJson });
+            await InvokeAsync("sorvilSetStyle", new[] { styleJson });
         }
 
         // JsonObject.Stringify() cuida de toda a escapagem — depois de

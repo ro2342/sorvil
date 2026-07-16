@@ -282,59 +282,71 @@
   // dá pra reportar progresso de verdade (quantos pedaços já chegaram).
   var _bookChunks = [];
 
-  window.SorvilReader = {
-    beginBook: function (totalChunks) {
-      checkpoint("beginBook chamado, esperando " + totalChunks + " pedaços");
-      _bookChunks = [];
-      notify({ type: "progress", stage: "recebendo", done: 0, total: totalChunks });
-    },
+  // Funções GLOBAIS simples (window.sorvilX), não um objeto
+  // "SorvilReader" com métodos aninhados — WebView.InvokeScriptAsync
+  // resolve o nome da função fazendo uma busca LITERAL em window pela
+  // string inteira que a gente manda, não interpreta ponto como acesso
+  // de propriedade. Chamar InvokeScriptAsync("SorvilReader.getState", ...)
+  // procurava por uma propriedade CHAMADA "SorvilReader.getState" (com
+  // o ponto no meio do nome), que nunca existiu — daí o erro real
+  // "Unknown name" (DISP_E_UNKNOWNNAME, HRESULT 0x80020006) que só
+  // apareceu quando paramos de engolir a exceção em silêncio. Bem
+  // provável que TODAS as chamadas "SorvilReader.*" (beginBook,
+  // appendBookChunk, finishBook, etc.) estivessem falhando do mesmo
+  // jeito o tempo todo — e o "Enviando X/Y" que a gente via era só o
+  // contador do laço em C#, que avança independente da chamada ter
+  // funcionado ou não.
+  window.sorvilBeginBook = function (totalChunks) {
+    checkpoint("beginBook chamado, esperando " + totalChunks + " pedaços");
+    _bookChunks = [];
+    notify({ type: "progress", stage: "recebendo", done: 0, total: totalChunks });
+  };
 
-    appendBookChunk: function (chunk) {
-      _bookChunks.push(chunk);
-      checkpoint("pedaço " + _bookChunks.length + " recebido (" + chunk.length + " chars)");
-      notify({ type: "progress", stage: "recebendo", done: _bookChunks.length });
-    },
+  window.sorvilAppendBookChunk = function (chunk) {
+    _bookChunks.push(chunk);
+    checkpoint("pedaço " + _bookChunks.length + " recebido (" + chunk.length + " chars)");
+    notify({ type: "progress", stage: "recebendo", done: _bookChunks.length });
+  };
 
-    finishBook: function (startCfi, styleJson) {
-      checkpoint("0/8 finishBook chamado (" + _bookChunks.length + " pedaços)");
-      var base64Data = _bookChunks.join("");
-      _bookChunks = [];
-      notify({ type: "progress", stage: "recebido" });
-      openBookFromBase64(base64Data, startCfi, styleJson);
-    },
+  window.sorvilFinishBook = function (startCfi, styleJson) {
+    checkpoint("0/8 finishBook chamado (" + _bookChunks.length + " pedaços)");
+    var base64Data = _bookChunks.join("");
+    _bookChunks = [];
+    notify({ type: "progress", stage: "recebido" });
+    openBookFromBase64(base64Data, startCfi, styleJson);
+  };
 
-    next: function () {
-      if (rendition) {
-        rendition.next();
-      }
-    },
+  window.sorvilNext = function () {
+    if (rendition) {
+      rendition.next();
+    }
+  };
 
-    prev: function () {
-      if (rendition) {
-        rendition.prev();
-      }
-    },
+  window.sorvilPrev = function () {
+    if (rendition) {
+      rendition.prev();
+    }
+  };
 
-    goToHref: function (href) {
-      if (rendition) {
-        rendition.display(href);
-      }
-    },
+  window.sorvilGoToHref = function (href) {
+    if (rendition) {
+      rendition.display(href);
+    }
+  };
 
-    setStyle: function (styleJson) {
-      try {
-        applyStyle(JSON.parse(styleJson));
-      } catch (err) {
-        notify({ type: "error", message: "Falha ao aplicar estilo: " + String(err && err.message ? err.message : err) });
-      }
-    },
+  window.sorvilSetStyle = function (styleJson) {
+    try {
+      applyStyle(JSON.parse(styleJson));
+    } catch (err) {
+      notify({ type: "error", message: "Falha ao aplicar estilo: " + String(err && err.message ? err.message : err) });
+    }
+  };
 
-    // Chamado pelo C# via InvokeScriptAsync a cada intervalo — ver
-    // comentário em pushState. Devolve o último estado (com "seq") como
-    // JSON; o C# só reage quando "seq" muda.
-    getState: function () {
-      return JSON.stringify(_state);
-    },
+  // Chamado pelo C# via InvokeScriptAsync a cada intervalo — ver
+  // comentário em pushState. Devolve o último estado (com "seq") como
+  // JSON; o C# só reage quando "seq" muda.
+  window.sorvilGetState = function () {
+    return JSON.stringify(_state);
   };
 
   checkpoint(
