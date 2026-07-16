@@ -157,8 +157,17 @@ namespace Sorvil.Views
             LoadingRing.IsActive = true;
             LoadingStatusText.Text = "Abrindo...";
 
+            // .NET Native em build Release corta a mensagem amigável de
+            // exceções genéricas — uma COMException de um HRESULT sem
+            // detalhe vira só a CHAVE do recurso, tipo "Excep_FromHResult",
+            // em vez do texto — já vimos isso antes com o crash de download. Sem
+            // esse rastro de "onde estava" quando a exceção aconteceu, um
+            // "Operation aborted" genérico não dá pista nenhuma de qual
+            // das várias operações WinRT em sequência foi a culpada.
+            string step = "início";
             try
             {
+                step = "carregando registro do livro";
                 _record = await LibraryDataStore.GetAsync(_bookId);
                 if (_record == null)
                 {
@@ -180,14 +189,12 @@ namespace Sorvil.Views
                 UpdateWebViewBackgroundColor();
 
                 LoadingStatusText.Text = "Lendo arquivo...";
+                step = "abrindo a pasta Books";
                 StorageFolder booksFolder = await ApplicationData.Current.LocalFolder.GetFolderAsync("Books");
+                step = "abrindo o arquivo " + _record.LocalFilePath;
                 StorageFile epubFile = await booksFolder.GetFileAsync(_record.LocalFilePath);
-                // Convert.ToBase64String em vez de CryptographicBuffer.
-                // EncodeToBase64String: essa API do WinRT é pensada pra
-                // chave/hash criptográfico, não pra codificar um arquivo
-                // inteiro — na prática, deu "Operation aborted (0x80004004
-                // E_ABORT)" com um EPUB de tamanho normal. Stream +
-                // Convert.ToBase64String são .NET puro, sem esse teto.
+
+                step = "lendo os bytes do arquivo";
                 byte[] epubBytes;
                 using (Stream fileStream = await epubFile.OpenStreamForReadAsync())
                 using (MemoryStream memoryStream = new MemoryStream())
@@ -195,15 +202,18 @@ namespace Sorvil.Views
                     await fileStream.CopyToAsync(memoryStream);
                     epubBytes = memoryStream.ToArray();
                 }
+
+                step = "codificando em base64 (" + epubBytes.Length + " bytes)";
                 _pendingBase64 = Convert.ToBase64String(epubBytes);
                 _pendingStartCfi = _record.ReadingPositionJson;
 
                 LoadingStatusText.Text = "Carregando leitor...";
+                step = "navegando pro leitor (reader.html)";
                 ContentWebView.Navigate(new Uri("ms-appx:///Assets/EpubJs/reader.html"));
             }
             catch (Exception ex)
             {
-                ShowLoadError("Erro ao abrir o EPUB: " + ex.Message);
+                ShowLoadError("Erro ao abrir o EPUB (" + step + "): " + ex.Message);
             }
         }
 
