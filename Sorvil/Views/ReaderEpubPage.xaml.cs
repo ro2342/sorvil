@@ -3,6 +3,7 @@ using Sorvil.Services;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using Windows.ApplicationModel;
 using Windows.Data.Json;
@@ -1140,8 +1141,24 @@ namespace Sorvil.Views
 
         // — ponte com o epub.js —
 
+        // Serializa TODA chamada InvokeScriptAsync pra essa WebView — o
+        // envio de pedaços do livro (beginBook/appendBookChunk/finishBook)
+        // e o polling de estado (getState, a cada 400ms) rodam de fontes
+        // independentes e concorrentes; sem esse lock, uma chamada de
+        // polling podia disparar bem no meio da sequência de envio,
+        // sobrepondo duas chamadas de script ao mesmo tempo na mesma
+        // WebView — travava a fila de execução de script inteira,
+        // sempre logo depois do último pedaço enviado (o ponto onde a
+        // sequência principal e o próximo tique do polling mais
+        // provavelmente se cruzam). Mesmo padrão já usado em
+        // LibraryDataStore.cs (FileLock) pra serializar acesso
+        // concorrente a um recurso que não aguenta duas chamadas ao
+        // mesmo tempo.
+        private readonly SemaphoreSlim _scriptCallLock = new SemaphoreSlim(1, 1);
+
         private async Task<string> InvokeAsync(string functionName, string[] args)
         {
+            await _scriptCallLock.WaitAsync();
             try
             {
                 return await ContentWebView.InvokeScriptAsync(functionName, args);
@@ -1149,6 +1166,10 @@ namespace Sorvil.Views
             catch (Exception)
             {
                 return null;
+            }
+            finally
+            {
+                _scriptCallLock.Release();
             }
         }
 
