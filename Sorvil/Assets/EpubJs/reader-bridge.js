@@ -91,6 +91,47 @@
     rendition.themes.fontSize(style.fontSize + "%");
   }
 
+  // Decodifica base64 -> ArrayBuffer via XMLHttpRequest sobre uma URI
+  // "data:" — deixa o decode em código nativo do navegador (C++) em vez
+  // de um loop JS manual (atob + charCodeAt byte a byte), que pra um
+  // EPUB de alguns MB significa milhões de iterações interpretadas —
+  // era isso que deixava "Abrindo livro..." travado por mais de um
+  // minuto num Lumia real. Se por algum motivo a URI "data:" não for
+  // aceita (limite de tamanho em engines mais antigas, por exemplo),
+  // cai pro método antigo — mais lento, mas funciona.
+  function base64ToArrayBufferFast(base64, mimeType) {
+    return new Promise(function (resolve) {
+      try {
+        var xhr = new XMLHttpRequest();
+        xhr.open("GET", "data:" + mimeType + ";base64," + base64, true);
+        xhr.responseType = "arraybuffer";
+        xhr.onload = function () {
+          if (xhr.response && xhr.response.byteLength > 0) {
+            resolve(xhr.response);
+          } else {
+            resolve(base64ToArrayBufferSlow(base64));
+          }
+        };
+        xhr.onerror = function () {
+          resolve(base64ToArrayBufferSlow(base64));
+        };
+        xhr.send();
+      } catch (e) {
+        resolve(base64ToArrayBufferSlow(base64));
+      }
+    });
+  }
+
+  function base64ToArrayBufferSlow(base64) {
+    var binary = atob(base64);
+    var len = binary.length;
+    var bytes = new Uint8Array(len);
+    for (var i = 0; i < len; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes.buffer;
+  }
+
   function wireRendition() {
     rendition.on("relocated", function (location) {
       var percentage = 0;
@@ -120,55 +161,60 @@
 
   window.SorvilReader = {
     // base64Data: o .epub inteiro, codificado em base64 pelo C# — evita
-    // depender de fetch() entre esquemas ms-appx/ms-appdata dentro da
+    // depender de fetch() entre esquemas de conteúdo local dentro da
     // WebView (incerto se funciona nessa engine específica), passando
-    // os bytes direto como argumento da chamada.
+    // os bytes direto como argumento da chamada. Cada etapa manda um
+    // "progress" — sem isso, a tela fica travada em "Abrindo livro..."
+    // sem nenhuma pista de qual passo está demorando.
     openBook: function (base64Data, startCfi, styleJson) {
+      notify({ type: "progress", stage: "recebido" });
+      var style;
       try {
-        var style = JSON.parse(styleJson);
-        var binary = atob(base64Data);
-        var len = binary.length;
-        var bytes = new Uint8Array(len);
-        for (var i = 0; i < len; i++) {
-          bytes[i] = binary.charCodeAt(i);
-        }
-
-        book = ePub(bytes.buffer);
-        rendition = book.renderTo("viewer", {
-          width: "100%",
-          height: "100%",
-          flow: "scrolled-doc",
-          spread: "none",
-        });
-
-        applyStyle(style);
-        wireRendition();
-
-        book.ready
-          .then(function () {
-            return book.loaded.navigation;
-          })
-          .then(function (nav) {
-            notify({ type: "ready", toc: flattenToc(nav.toc) });
-            return rendition.display(startCfi || undefined);
-          })
-          .catch(function () {
-            // CFI salvo inválido/de um esquema antigo — abre do início
-            // em vez de deixar a tela em branco.
-            return rendition.display();
-          })
-          .catch(function (err) {
-            notify({
-              type: "error",
-              message: "Falha ao exibir o livro: " + (err && err.message ? err.message : String(err)),
-            });
-          });
+        style = JSON.parse(styleJson);
       } catch (err) {
-        notify({
-          type: "error",
-          message: "Falha ao abrir o livro: " + (err && err.message ? err.message : String(err)),
-        });
+        notify({ type: "error", message: "Falha ao ler estilo: " + String(err && err.message ? err.message : err) });
+        return;
       }
+
+      base64ToArrayBufferFast(base64Data, "application/epub+zip")
+        .then(function (arrayBuffer) {
+          notify({ type: "progress", stage: "decodificado" });
+          book = ePub(arrayBuffer);
+          rendition = book.renderTo("viewer", {
+            width: "100%",
+            height: "100%",
+            flow: "scrolled-doc",
+            spread: "none",
+          });
+
+          applyStyle(style);
+          wireRendition();
+
+          return book.ready;
+        })
+        .then(function () {
+          notify({ type: "progress", stage: "processado" });
+          return book.loaded.navigation;
+        })
+        .then(function (nav) {
+          notify({ type: "ready", toc: flattenToc(nav.toc) });
+          // Catch aninhado de propósito, só em volta do display() — se
+          // o CFI salvo for inválido/de um esquema antigo, abre do
+          // início em vez de deixar em branco. Um catch geral aqui
+          // embaixo (fora deste .then) também pegaria falha de QUALQUER
+          // etapa anterior (ePub() inválido, book.ready rejeitado) e
+          // tentaria rendition.display() mesmo sem rendition existir,
+          // trocando a mensagem de erro real por uma confusa.
+          return rendition.display(startCfi || undefined).catch(function () {
+            return rendition.display();
+          });
+        })
+        .catch(function (err) {
+          notify({
+            type: "error",
+            message: "Falha ao abrir o livro: " + (err && err.message ? err.message : String(err)),
+          });
+        });
     },
 
     next: function () {

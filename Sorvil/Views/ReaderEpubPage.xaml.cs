@@ -361,6 +361,9 @@ namespace Sorvil.Views
             string type = msg.GetNamedString("type", string.Empty);
             switch (type)
             {
+                case "progress":
+                    HandleProgress(msg);
+                    break;
                 case "ready":
                     HandleReady(msg);
                     break;
@@ -369,6 +372,28 @@ namespace Sorvil.Views
                     break;
                 case "error":
                     ShowLoadError(msg.GetNamedString("message", "Erro desconhecido no leitor."));
+                    break;
+            }
+        }
+
+        // Sem isso, "Abrindo livro..." fica parado na tela o tempo
+        // inteiro que o epub.js está decodificando/descompactando/
+        // interpretando o EPUB (pode passar de um minuto num aparelho
+        // fraco com um livro grande) — sem nenhuma pista de progresso
+        // real, pareceria travado mesmo funcionando.
+        private void HandleProgress(JsonObject msg)
+        {
+            string stage = msg.GetNamedString("stage", string.Empty);
+            switch (stage)
+            {
+                case "recebido":
+                    LoadingStatusText.Text = "Decodificando...";
+                    break;
+                case "decodificado":
+                    LoadingStatusText.Text = "Descompactando...";
+                    break;
+                case "processado":
+                    LoadingStatusText.Text = "Preparando índice...";
                     break;
             }
         }
