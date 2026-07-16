@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Sorvil — Mockup</title>
+<style>
+  :root{
+    --green: #5da130;        /* verde forte do botão hambúrguer */
+    --green-active: #326019; /* verde mais escuro do item ativo (Início / capítulo atual) */
+    --charcoal: #232323;
+    --charcoal-2: #2c2c2c;
+    --toolbar-dark: #3a3a3a;
+    --toolbar-dark-2: #363636;
+    --hdr-bg: #ececec;       /* cinza claro da topbar */
+    --hdr-text: #1a1a1a;
+    --paper: #ffffff;
+    --paper-sepia: #f3e6cf;
+    --paper-dark: #1c1c1c;
+    --ink: #1a1a1a;
+    --ink-dark: #e8e8e8;
+    --hl-yellow: rgba(255, 214, 64, .55);
+    --hl-green: rgba(140, 230, 120, .55);
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color: transparent; user-select:none;}
+  html,body{
+    margin:0; padding:0; height:100%;
+    background:var(--paper);
+    font-family: 'Segoe UI', 'Segoe UI Semibold', Tahoma, Arial, sans-serif;
+  }
+
+  .screen{
+    position:relative; width:100%; height:100vh; background:var(--paper);
+    overflow:hidden; display:flex; flex-direction:column; font-size:14px;
+  }
+
+  .app{ position:relative; flex:1 1 auto; overflow:hidden; }
+  .page{ position:absolute; inset:0; display:flex; flex-direction:column; background:var(--paper); }
+  .page.hidden{ display:none; }
+
+  /* ===== APP HEADER (cinza claro + botão quadrado verde) ===== */
+  .apphdr{
+    flex:0 0 auto; min-height:46px;
+    background:var(--hdr-bg); color:var(--hdr-text);
+    display:flex; align-items:stretch; gap:0; padding:0;
+  }
+  .apphdr .title{ font-size:16px; font-weight:700; letter-spacing:.2px; line-height:1.2; display:flex; align-items:center; padding:0 14px; color:var(--hdr-text); }
+  .hamburger-sq{
+    flex:0 0 56px; width:56px; background:var(--green); border:none; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; padding:0;
+  }
+  .hamburger-sq svg{ width:20px; height:20px; }
+  .hamburger-sq path{ stroke:#fff; }
+
+  .iconbtn{ background:none; border:none; padding:4px; cursor:pointer; display:flex; align-items:center; justify-content:center; color:#fff; }
+  .iconbtn svg{ width:20px; height:20px; display:block; }
+  .iconbtn path, .iconbtn rect, .iconbtn circle, .iconbtn line{ stroke:#fff; }
+
+  /* ===== HOME PAGE ===== */
+  #page-home{ }
+  .home-body{ position:relative; flex:1; overflow:hidden; }
+  #page-home .content{ position:absolute; inset:0; overflow-y:auto; padding-bottom:10px; }
+  .section-title{ font-size:13px; font-weight:700; color:#333; padding:14px 14px 8px; }
+  .book-row{ display:flex; gap:10px; padding:0 14px; overflow-x:auto; }
+  .book-cover{ flex:0 0 auto; width:76px; height:112px; border-radius:2px; box-shadow:0 2px 5px rgba(0,0,0,.25); display:flex; align-items:center; justify-content:center; text-align:center; padding:6px; position:relative; overflow:hidden; }
+  .book-cover span{ position:relative; z-index:2; font-size:9.5px; line-height:1.15; font-weight:700; }
+  .cover-narnia{ background:linear-gradient(160deg,#e8a83a,#a8570f); color:#3a1c00; }
+  .cover-narnia span{ color:#2b1400; text-shadow:0 1px 0 rgba(255,255,255,.3);}
+  .cover-lotr{ background:#0e0e0e; color:#c9a04a; border:1px solid #333; }
+  .cover-lotr span{ color:#c9a04a; font-family: Georgia, serif; }
+  .cover-tswift{ background:linear-gradient(160deg,#f6cdd7,#f2a9bc); color:#7a2d3f; }
+  .cover-tswift span{ color:#7a2d3f; font-family: Georgia, serif; font-style:italic; }
+  .cover-heartstopper{ background:linear-gradient(170deg,#2f8f7a,#1c5c4d); color:#eafff8; }
+  .cover-heartstopper span{ color:#eafff8; }
+
+  /* ===== HOME DRAWER: 40% largura, 100% altura, encostado à esquerda, sob a topbar fixa ===== */
+  .drawer{
+    position:absolute; top:0; left:0; bottom:0; z-index:20;
+    width:40%;
+    display:flex; flex-direction:column;
+    transform:translateX(-100%);
+    transition:transform .22s ease;
+    background:var(--charcoal);
+    box-shadow: 3px 0 12px rgba(0,0,0,.35);
+  }
+  .drawer.open{ transform:translateX(0); }
+  .drawer-items{ flex:1; display:flex; flex-direction:column; padding-top:2px; overflow-y:auto; }
+  .drawer-item{ display:flex; align-items:center; gap:12px; padding:14px 16px; color:#ddd; font-size:14px; cursor:pointer; border-left:4px solid transparent; }
+  .drawer-item svg{ width:18px; height:18px; flex:0 0 auto; }
+  .drawer-item path{ stroke:#ddd; fill:none; }
+  .drawer-item.active{ background:var(--green-active); border-left-color:#cdeab0; color:#fff; }
+  .drawer-item.active path{ stroke:#fff; }
+  .drawer-footer{ border-top:1px solid #3a3a3a; flex:0 0 auto; }
+
+  /* ===== READING PAGE ===== */
+  #page-book{ padding:0; }
+  .reader-wrap{ position:relative; flex:1; overflow:hidden; }
+  .reader-scroll{ position:absolute; inset:0; overflow-y:auto; background:var(--paper); padding:18px 20px 40px; transition:background .2s, color .2s; }
+  .reader-scroll.theme-dark{ background:var(--paper-dark); color:var(--ink-dark); }
+  .reader-scroll.theme-sepia{ background:var(--paper-sepia); color:#3a2b16; }
+  .tap-catch{ position:absolute; inset:0; z-index:1; }
+
+  .chap-illustration{ display:flex; justify-content:center; margin:6px 0 18px; }
+  .chap-illustration svg{ width:150px; height:130px; }
+  .chap-label{ text-align:center; color:#5da130; font-size:12px; letter-spacing:1.5px; margin-bottom:2px; font-family: Georgia, 'EB Garamond', serif;}
+  .chap-title{ text-align:center; font-size:22px; font-weight:700; margin:0 0 18px; font-family: Georgia, 'EB Garamond', serif; }
+  .reader-scroll.theme-dark .chap-label{ color:#8fd25a; }
+  .chap-text{ font-family: Georgia, 'EB Garamond', serif; font-size:14.5px; line-height:1.65; text-align:justify; }
+  .chap-text p{ margin:0 0 12px; }
+  .hl-y{ background:var(--hl-yellow); }
+  .hl-g{ background:var(--hl-green); }
+
+  /* top chrome: barra escura (imersão) OU header claro + índice em tela cheia */
+  .chrome-top{ position:absolute; top:0; left:0; right:0; bottom:auto; z-index:12; transform:translateY(-100%); transition:transform .2s ease; display:flex; flex-direction:column; }
+  .chrome-top.show{ transform:translateY(0); }
+  .chrome-top.index-full{ bottom:0; } /* quando índice aberto, ocupa a tela toda em altura */
+
+  .toolbar-top{ flex:0 0 auto; background:var(--toolbar-dark); border-bottom:1px solid #222; display:flex; align-items:center; justify-content:space-between; padding:10px 12px; }
+  .toolbar-left{ display:flex; align-items:center; gap:8px; color:#eee; font-size:13px; cursor:pointer; }
+  .toolbar-left svg{ width:17px; height:17px; }
+  .toolbar-left path{ stroke:#eee; }
+  .toolbar-right{ display:flex; align-items:center; gap:16px; }
+  .toolbar-right .aa{ font-weight:700; font-size:15px; color:#eee; cursor:pointer; letter-spacing:-1px;}
+  .toolbar-right .aa.active{ color: var(--green); }
+  .toolbar-right .iconbtn{ color:#eee; }
+  .toolbar-right .iconbtn path, .toolbar-right .iconbtn circle, .toolbar-right .iconbtn line{ stroke:#eee; }
+  .toolbar-right .iconbtn.active path, .toolbar-right .iconbtn.active circle, .toolbar-right .iconbtn.active line{ stroke: var(--green); }
+
+  .panel{ display:none; flex:0 0 auto; background:var(--toolbar-dark-2); border-bottom:1px solid #222; padding:16px 18px 18px; }
+  .panel.show{ display:block; }
+  .panel-row{ margin-bottom:16px; }
+  .panel-row:last-child{ margin-bottom:0; }
+  .panel-label{ font-size:12.5px; color:#bbb; margin-bottom:8px; font-weight:600; }
+  .slider-row{ display:flex; align-items:center; gap:10px; }
+  .slider-row .sym{ font-size:16px; color:#999; width:14px; text-align:center; }
+  input[type=range]{ flex:1; -webkit-appearance:none; height:3px; background:#5a5a5a; border-radius:2px; outline:none; }
+  input[type=range]::-webkit-slider-thumb{ -webkit-appearance:none; width:16px; height:16px; border-radius:50%; background:#eee; cursor:pointer; box-shadow:0 0 0 2px var(--toolbar-dark-2), 0 0 0 3px #999; }
+  .segbtns{ display:flex; gap:8px; }
+  .segbtn{ flex:1; text-align:center; padding:9px 4px; font-size:12.5px; border-radius:3px; cursor:pointer; background:#555; color:#eee; border:1px solid #4a4a4a; }
+  .segbtn.active{ background:#eee; color:#222; border-color:#eee; }
+  .selectrow{ display:flex; align-items:center; justify-content:space-between; padding:2px 0 0; font-size:13px; }
+  .fauxselect{ display:flex; align-items:center; gap:6px; color:#eee; border:1px solid #666; padding:6px 10px; border-radius:3px; font-size:12.5px; }
+  .advlink{ font-size:12px; color:#eee; font-weight:700; cursor:pointer; }
+
+  .toggle-row{ display:flex; align-items:center; justify-content:space-between; padding:12px 0; border-bottom:1px solid #4a4a4a; font-size:13px; color:#eee; }
+  .toggle-row:last-child{ border-bottom:none; }
+  .switch{ width:38px; height:20px; border-radius:11px; background:#5a5a5a; position:relative; cursor:pointer; flex:0 0 auto; }
+  .switch::after{ content:""; position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:50%; background:#fff; transition:left .15s; box-shadow:0 1px 2px rgba(0,0,0,.3);}
+  .switch.on{ background:var(--green); }
+  .switch.on::after{ left:20px; }
+
+  /* índice: 100% de altura, encostado à esquerda */
+  .index-flyout{
+    display:none; width:62%;
+    background:var(--charcoal-2);
+    box-shadow:3px 3px 10px rgba(0,0,0,.35);
+    overflow-y:auto;
+  }
+  .chrome-top.index-full .index-flyout{ flex:1; }
+  .chrome-top.index-mode .index-flyout{ display:block; }
+  .chapter-item{ padding:16px 18px; color:#ddd; font-size:13.5px; cursor:pointer; border-left:4px solid transparent; }
+  .chapter-item.active{ background:var(--green-active); border-left-color:#cdeab0; color:#fff; }
+
+  .toolbar-bottom{ position:absolute; left:0; right:0; bottom:0; z-index:12; background:var(--toolbar-dark); border-top:1px solid #222; transform:translateY(100%); transition:transform .2s ease; padding:10px 14px 8px; }
+  .toolbar-bottom.show{ transform:translateY(0); }
+  .tb-caption{ text-align:center; font-size:11px; color:#bbb; margin-bottom:8px; }
+
+  .scrub-row{ display:flex; align-items:center; gap:6px; margin-bottom:6px; }
+  .scrub-btn{ width:26px; height:26px; }
+  .scrub-btn svg{ width:18px; height:18px; }
+  .scrub-btn path{ stroke:#ddd; fill:#ddd; }
+  .scrub-track-wrap{ flex:1; }
+  .scrub-range{ width:100%; height:2px; background:#666; }
+  .scrub-range::-webkit-slider-thumb{ box-shadow:0 0 0 2px var(--toolbar-dark), 0 0 0 3px #ccc; }
+
+  .tb-icons-row{ display:flex; align-items:center; justify-content:space-between; }
+  .tb-icons-row .iconbtn path, .tb-icons-row .iconbtn circle, .tb-icons-row .iconbtn line{ stroke:#ddd; }
+  .tb-icons-row .iconbtn{ color:#ddd; }
+  .tb-center-label{ font-size:12px; color:#eee; font-weight:600; flex:1; text-align:center; }
+  .tb-search-input{ flex:1; background:#4a4a4a; border:none; border-radius:3px; color:#fff; font-size:12.5px; padding:6px 10px; margin:0 8px; outline:none; }
+  .tb-search-input::placeholder{ color:#bbb; }
+</style>
+</head>
+<body>
+
+<div class="screen">
+
+    <div class="app">
+
+      <!-- ============ HOME PAGE ============ -->
+      <div class="page" id="page-home">
+        <div class="apphdr">
+          <button class="hamburger-sq" onclick="toggleHomeDrawer()" aria-label="Menu">
+            <svg viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18" stroke-width="2.2" stroke-linecap="round"/></svg>
+          </button>
+          <div class="title">Sorvil</div>
+        </div>
+
+        <div class="home-body">
+          <div class="content">
+            <div class="section-title">Você está lendo</div>
+            <div class="book-row">
+              <div class="book-cover cover-narnia" onclick="openBook()"><span>THE CHRONICLES OF NARNIA</span></div>
+              <div class="book-cover cover-lotr" onclick="openBook()"><span>THE LORD OF THE RINGS</span></div>
+              <div class="book-cover cover-tswift" onclick="openBook()"><span>Taylor Swift by the Book</span></div>
+              <div class="book-cover cover-heartstopper" onclick="openBook()"><span>heartstopper</span></div>
+            </div>
+            <div class="section-title">Adicionado Recentemente</div>
+            <div class="book-row">
+              <div class="book-cover cover-narnia" onclick="openBook()"><span>THE CHRONICLES OF NARNIA</span></div>
+              <div class="book-cover cover-lotr" onclick="openBook()"><span>THE LORD OF THE RINGS</span></div>
+              <div class="book-cover cover-tswift" onclick="openBook()"><span>Taylor Swift by the Book</span></div>
+              <div class="book-cover cover-heartstopper" onclick="openBook()"><span>heartstopper</span></div>
+            </div>
+            <div class="section-title">Você pode gostar de....</div>
+            <div class="book-row">
+              <div class="book-cover cover-narnia" onclick="openBook()"><span>THE CHRONICLES OF NARNIA</span></div>
+              <div class="book-cover cover-lotr" onclick="openBook()"><span>THE LORD OF THE RINGS</span></div>
+              <div class="book-cover cover-tswift" onclick="openBook()"><span>Taylor Swift by the Book</span></div>
+              <div class="book-cover cover-heartstopper" onclick="openBook()"><span>heartstopper</span></div>
+            </div>
+          </div>
+
+          <div class="drawer" id="homeDrawer">
+            <div class="drawer-items">
+              <div class="drawer-item active">
+                <svg viewBox="0 0 24 24"><path d="M4 11l8-7 8 7M6 10v9h5v-5h2v5h5v-9" stroke-width="2"/></svg>
+                Início
+              </div>
+              <div class="drawer-item">
+                <svg viewBox="0 0 24 24"><path d="M4 5h6a3 3 0 013 3v11a3 3 0 00-3-3H4zM20 5h-6a3 3 0 00-3 3v11a3 3 0 013-3h6z" stroke-width="1.6"/></svg>
+                Biblioteca
+              </div>
+              <div class="drawer-item">
+                <svg viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 19h16" stroke-width="1.8" stroke-linecap="round"/></svg>
+                Baixados
+              </div>
+            </div>
+            <div class="drawer-footer">
+              <div class="drawer-item">
+                <svg viewBox="0 0 24 24"><path d="M4 11l8-7 8 7M6 10v9h5v-5h2v5h5v-9" stroke-width="2"/></svg>
+                Ajustes
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ READING PAGE ============ -->
+      <div class="page hidden" id="page-book">
+        <div class="reader-wrap">
+
+          <div class="reader-scroll" id="readerScroll">
+            <div class="tap-catch" onclick="onReaderTap()"></div>
+            <div class="chap-illustration">
+              <svg viewBox="0 0 150 130">
+                <rect x="35" y="8" width="80" height="112" rx="2" fill="none" stroke="#222" stroke-width="2.2"/>
+                <line x1="75" y1="10" x2="75" y2="118" stroke="#222" stroke-width="1.6"/>
+                <circle cx="68" cy="62" r="1.8" fill="#222"/>
+                <circle cx="82" cy="62" r="1.8" fill="#222"/>
+                <path d="M50 118 q25 -55 50 0" fill="none" stroke="#222" stroke-width="1.4"/>
+                <circle cx="60" cy="95" r="7" fill="none" stroke="#222" stroke-width="1.4"/>
+                <path d="M55 100 q5 10 10 0" stroke="#222" stroke-width="1.2" fill="none"/>
+                <circle cx="90" cy="98" r="6" fill="none" stroke="#222" stroke-width="1.4"/>
+                <path d="M85 102 q5 8 9 0" stroke="#222" stroke-width="1.2" fill="none"/>
+              </svg>
+            </div>
+            <div class="chap-label" id="chapLabel">Capítulo Um</div>
+            <div class="chap-title" id="chapTitle">A porta errada</div>
+            <div class="chap-text" id="chapText">
+              <p><span class="hl-y">O que aqui se conta aconteceu ha muitos anos, quando vové ainda era menino. E uma historia da maior importancia,</span> pois explica como comegÇaram as idas e vindas entre o nosso mundo e a terra de Narnia. <span class="hl-g">Naqueles tempos, Sherlock Holmes ainda vivia em Londres e as escolas eram ainda piores que as de hoje.</span> Mas os doces e os salgadinhos eram muito melhores e mais baratos; só nado conto para <span class="hl-y">nao dar agua na boca</span> de ninguém.</p>
+              <p>Naquela época vivia em Londres uma garota que se chamava Polly. Morava numa daquelas casas que ficam coladas umas</p>
+            </div>
+          </div>
+
+          <div class="chrome-top" id="chromeTop">
+
+            <div class="toolbar-top" id="toolbarTop">
+              <div class="toolbar-left" onclick="goHome()">
+                <svg viewBox="0 0 24 24"><path d="M4 11l8-7 8 7M6 10v9h5v-5h2v5h5v-9" stroke-width="2" fill="none"/></svg>
+                Voltar ao Início
+              </div>
+              <div class="toolbar-right">
+                <div class="aa" id="aaBtn" onclick="togglePanel('font')">A<span style="font-size:11px">A</span></div>
+                <button class="iconbtn" id="sunBtn" onclick="togglePanel('theme')" aria-label="Brilho e tema">
+                  <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" stroke-width="1.8" fill="none"/><path d="M12 2v3M12 19v3M4.2 4.2l2 2M17.8 17.8l2 2M2 12h3M19 12h3M4.2 19.8l2-2M17.8 6.2l2-2" stroke-width="1.8" stroke-linecap="round"/></svg>
+                </button>
+                <button class="iconbtn" id="gearBtn" onclick="togglePanel('gestures')" aria-label="Configurações de gestos">
+                  <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.6" stroke-width="1.6" fill="none"/><path d="M12 3v2.2M12 18.8V21M21 12h-2.2M5.2 12H3M18 6l-1.5 1.5M7.5 16.5L6 18M18 18l-1.5-1.5M7.5 7.5L6 6" stroke-width="1.6" stroke-linecap="round"/></svg>
+                </button>
+              </div>
+            </div>
+
+            <div class="panel" id="panelFont">
+              <div class="selectrow" style="margin-bottom:14px;">
+                <span class="panel-label" style="margin:0">Font Face</span>
+                <div class="fauxselect">EB Garamond ▾</div>
+                <span class="advlink">Advanced</span>
+              </div>
+              <div class="panel-row">
+                <div class="panel-label">Font Size</div>
+                <div class="slider-row"><span class="sym">–</span><input type="range" min="10" max="24" value="14"><span class="sym">+</span></div>
+              </div>
+              <div class="panel-row">
+                <div class="panel-label">Line Spacing</div>
+                <div class="slider-row"><span class="sym">–</span><input type="range" min="0" max="10" value="3"><span class="sym">+</span></div>
+              </div>
+              <div class="panel-row">
+                <div class="panel-label">Margins</div>
+                <div class="slider-row"><span class="sym">–</span><input type="range" min="0" max="10" value="2"><span class="sym">+</span></div>
+              </div>
+              <div class="panel-row">
+                <div class="panel-label">Justification</div>
+                <div class="segbtns">
+                  <div class="segbtn" onclick="setJustify('off',this)">Off</div>
+                  <div class="segbtn active" onclick="setJustify('left',this)">≡</div>
+                  <div class="segbtn" onclick="setJustify('justify',this)">▤</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="panel" id="panelTheme">
+              <div class="panel-row">
+                <div class="panel-label">Brilho da Tela</div>
+                <div class="slider-row"><span class="sym">–</span><input type="range" min="0" max="100" value="55"><span class="sym">+</span></div>
+              </div>
+              <div class="panel-row">
+                <div class="panel-label">Tema do livro</div>
+                <div class="segbtns">
+                  <div class="segbtn active" onclick="setReaderTheme('claro', this)">Claro</div>
+                  <div class="segbtn" onclick="setReaderTheme('escuro', this)">Escuro</div>
+                  <div class="segbtn" onclick="setReaderTheme('sepia', this)">Sépia</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="panel" id="panelGestures">
+              <div class="toggle-row">Zoom do texto com movimento de pinça<div class="switch" onclick="this.classList.toggle('on')"></div></div>
+              <div class="toggle-row">Toque nos cantos para mudar página<div class="switch" onclick="this.classList.toggle('on')"></div></div>
+              <div class="toggle-row">Mudar página com movimento de slide<div class="switch" onclick="this.classList.toggle('on')"></div></div>
+            </div>
+
+            <!-- header claro do índice -->
+            <div class="apphdr" id="indexHeader" style="display:none;">
+              <button class="hamburger-sq" onclick="closeIndex()" aria-label="Fechar índice">
+                <svg viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18" stroke-width="2.2" stroke-linecap="round"/></svg>
+              </button>
+              <div class="title">As Crônicas de Nárnia - O Sobrinho do Mago</div>
+            </div>
+
+            <!-- índice: 100% de altura, encostado à esquerda -->
+            <div class="index-flyout" id="indexFlyout">
+              <div class="chapter-item active" data-i="0" onclick="selectChapter(0)">Capítulo 1 - A Porta Errada</div>
+              <div class="chapter-item" data-i="1" onclick="selectChapter(1)">Capítulo 2 - Lalala</div>
+              <div class="chapter-item" data-i="2" onclick="selectChapter(2)">Capítulo 3 - Lalalala</div>
+            </div>
+
+          </div>
+
+          <div class="toolbar-bottom" id="toolbarBottom">
+            <div class="tb-caption">As Crônicas de Nárnia - O Sobrinho do Mago (C. S. Lewis)</div>
+            <div class="scrub-row">
+              <button class="iconbtn scrub-btn" onclick="nudgeScrub(-5)" aria-label="Retroceder">
+                <svg viewBox="0 0 24 24"><path d="M12 5a7 7 0 11-6.9 8.2" fill="none" stroke-width="2" stroke-linecap="round"/><path d="M5 5v4h4" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+              <div class="scrub-track-wrap">
+                <input type="range" class="scrub-range" id="scrubRange" min="0" max="100" value="1">
+              </div>
+              <button class="iconbtn scrub-btn" onclick="nudgeScrub(5)" aria-label="Avançar">
+                <svg viewBox="0 0 24 24"><path d="M4 6l8 6-8 6z"/><path d="M12 6l8 6-8 6z"/></svg>
+              </button>
+            </div>
+            <div class="tb-icons-row" id="tbIconsRow">
+              <button class="iconbtn" onclick="openIndex()" aria-label="Índice">
+                <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16" stroke-width="1.8" stroke-linecap="round"/></svg>
+              </button>
+              <div class="tb-center-label" id="tbCenterLabel">Capítulo Um - A Porta Errada</div>
+              <input class="tb-search-input" id="tbSearchInput" style="display:none" placeholder="Pesquisar no livro...">
+              <button class="iconbtn" onclick="toggleSearch()" aria-label="Pesquisar">
+                <svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke-width="1.8"/><line x1="20" y1="20" x2="15.5" y2="15.5" stroke-width="1.8" stroke-linecap="round"/></svg>
+              </button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+
+</div>
+
+<script>
+let history_ = ['home'];
+
+function toggleHomeDrawer(){
+  const d = document.getElementById('homeDrawer');
+  const open = !d.classList.contains('open');
+  d.classList.toggle('open', open);
+  if(open){ history_.push('homeDrawer'); } else { popIfTop('homeDrawer'); }
+}
+function closeHomeDrawer(){ document.getElementById('homeDrawer').classList.remove('open'); popIfTop('homeDrawer'); }
+
+function openBook(){
+  document.getElementById('page-home').classList.add('hidden');
+  document.getElementById('page-book').classList.remove('hidden');
+  readerState = 'none';
+  applyReaderState();
+  history_.push('book');
+}
+
+function goHome(){
+  document.getElementById('page-book').classList.add('hidden');
+  document.getElementById('page-home').classList.remove('hidden');
+  readerState = 'none';
+  applyReaderState();
+  history_ = ['home'];
+}
+
+function popIfTop(name){ if(history_[history_.length-1] === name){ history_.pop(); } }
+
+let readerState = 'none';
+
+function applyReaderState(){
+  const chromeTop = document.getElementById('chromeTop');
+  const toolbarTop = document.getElementById('toolbarTop');
+  const indexHeader = document.getElementById('indexHeader');
+  const indexFlyout = document.getElementById('indexFlyout');
+  const toolbarBottom = document.getElementById('toolbarBottom');
+  const panels = { font: document.getElementById('panelFont'), theme: document.getElementById('panelTheme'), gestures: document.getElementById('panelGestures') };
+
+  const showTop = readerState !== 'none';
+  chromeTop.classList.toggle('show', showTop);
+
+  const isIndex = readerState === 'index';
+  chromeTop.classList.toggle('index-full', isIndex);
+  toolbarTop.style.display = isIndex ? 'none' : 'flex';
+  indexHeader.style.display = isIndex ? 'flex' : 'none';
+  indexFlyout.style.display = isIndex ? 'block' : 'none';
+
+  Object.keys(panels).forEach(k=>{
+    panels[k].classList.toggle('show', readerState === k);
+  });
+
+  toolbarBottom.classList.toggle('show', readerState === 'toolbar');
+
+  document.getElementById('aaBtn').classList.toggle('active', readerState === 'font');
+  document.getElementById('sunBtn').classList.toggle('active', readerState === 'theme');
+  document.getElementById('gearBtn').classList.toggle('active', readerState === 'gestures');
+}
+
+function onReaderTap(){
+  if(readerState === 'none'){ readerState = 'toolbar'; }
+  else if(readerState === 'toolbar'){ readerState = 'none'; }
+  else { readerState = 'toolbar'; }
+  applyReaderState();
+}
+
+function togglePanel(which){
+  readerState = (readerState === which) ? 'toolbar' : which;
+  applyReaderState();
+}
+
+function openIndex(){ readerState = 'index'; applyReaderState(); }
+function closeIndex(){ readerState = 'toolbar'; applyReaderState(); }
+
+const chapters = [
+  {
+    label:'Capítulo Um', title:'A porta errada', short:'Capítulo Um - A Porta Errada',
+    html:'<p><span class="hl-y">O que aqui se conta aconteceu ha muitos anos, quando vové ainda era menino. E uma historia da maior importancia,</span> pois explica como comegÇaram as idas e vindas entre o nosso mundo e a terra de Narnia. <span class="hl-g">Naqueles tempos, Sherlock Holmes ainda vivia em Londres e as escolas eram ainda piores que as de hoje.</span> Mas os doces e os salgadinhos eram muito melhores e mais baratos; só nado conto para <span class="hl-y">nao dar agua na boca</span> de ninguém.</p><p>Naquela época vivia em Londres uma garota que se chamava Polly. Morava numa daquelas casas que ficam coladas umas</p>'
+  },
+  {
+    label:'Capítulo Dois', title:'Lalala', short:'Capítulo Dois - Lalala',
+    html:'<p>Conteúdo de exemplo do capítulo dois. Lalala lalala lalala lalala lalala lalala lalala lalala lalala lalala lalala lalala.</p>'
+  },
+  {
+    label:'Capítulo Três', title:'Lalalala', short:'Capítulo Três - Lalalala',
+    html:'<p>Conteúdo de exemplo do capítulo três. Lalalala lalalala lalalala lalalala lalalala lalalala lalalala lalalala.</p>'
+  }
+];
+
+function selectChapter(i){
+  const c = chapters[i];
+  document.getElementById('chapLabel').textContent = c.label;
+  document.getElementById('chapTitle').textContent = c.title;
+  document.getElementById('chapText').innerHTML = c.html;
+  document.getElementById('tbCenterLabel').textContent = c.short;
+  document.querySelectorAll('.chapter-item').forEach(el=>el.classList.remove('active'));
+  document.querySelector('.chapter-item[data-i="'+i+'"]').classList.add('active');
+  document.getElementById('readerScroll').scrollTop = 0;
+  readerState = 'none';
+  applyReaderState();
+}
+
+function setReaderTheme(theme, el){
+  document.querySelectorAll('#panelTheme .segbtn').forEach(b=>b.classList.remove('active'));
+  el.classList.add('active');
+  const scroll = document.getElementById('readerScroll');
+  scroll.classList.remove('theme-dark','theme-sepia');
+  if(theme==='escuro') scroll.classList.add('theme-dark');
+  if(theme==='sepia') scroll.classList.add('theme-sepia');
+}
+
+function setJustify(mode, el){
+  document.querySelectorAll('#panelFont .segbtns .segbtn').forEach(b=>b.classList.remove('active'));
+  el.classList.add('active');
+  const txt = document.querySelector('.chap-text');
+  txt.style.textAlign = mode === 'justify' ? 'justify' : 'left';
+}
+
+function nudgeScrub(delta){
+  const r = document.getElementById('scrubRange');
+  let v = parseInt(r.value) + delta;
+  v = Math.max(0, Math.min(100, v));
+  r.value = v;
+}
+
+function toggleSearch(){
+  const input = document.getElementById('tbSearchInput');
+  const label = document.getElementById('tbCenterLabel');
+  const open = input.style.display === 'none';
+  input.style.display = open ? 'block' : 'none';
+  label.style.display = open ? 'none' : 'block';
+  if(open) input.focus();
+}
+
+applyReaderState();
+</script>
+
+</body>
+</html>
