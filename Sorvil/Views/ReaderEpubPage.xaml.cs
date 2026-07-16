@@ -2,11 +2,10 @@ using Sorvil.Models;
 using Sorvil.Services;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading.Tasks;
 using Windows.Data.Json;
-using Windows.Security.Cryptography;
 using Windows.Storage;
-using Windows.Storage.Streams;
 using Windows.UI;
 using Windows.UI.Core;
 using Windows.UI.Text;
@@ -183,8 +182,20 @@ namespace Sorvil.Views
                 LoadingStatusText.Text = "Lendo arquivo...";
                 StorageFolder booksFolder = await ApplicationData.Current.LocalFolder.GetFolderAsync("Books");
                 StorageFile epubFile = await booksFolder.GetFileAsync(_record.LocalFilePath);
-                IBuffer buffer = await FileIO.ReadBufferAsync(epubFile);
-                _pendingBase64 = CryptographicBuffer.EncodeToBase64String(buffer);
+                // Convert.ToBase64String em vez de CryptographicBuffer.
+                // EncodeToBase64String: essa API do WinRT é pensada pra
+                // chave/hash criptográfico, não pra codificar um arquivo
+                // inteiro — na prática, deu "Operation aborted (0x80004004
+                // E_ABORT)" com um EPUB de tamanho normal. Stream +
+                // Convert.ToBase64String são .NET puro, sem esse teto.
+                byte[] epubBytes;
+                using (Stream fileStream = await epubFile.OpenStreamForReadAsync())
+                using (MemoryStream memoryStream = new MemoryStream())
+                {
+                    await fileStream.CopyToAsync(memoryStream);
+                    epubBytes = memoryStream.ToArray();
+                }
+                _pendingBase64 = Convert.ToBase64String(epubBytes);
                 _pendingStartCfi = _record.ReadingPositionJson;
 
                 LoadingStatusText.Text = "Carregando leitor...";
