@@ -114,36 +114,19 @@
     rendition.themes.fontSize(style.fontSize + "%");
   }
 
-  // Decodifica base64 -> ArrayBuffer via XMLHttpRequest sobre uma URI
-  // "data:" — deixa o decode em código nativo do navegador (C++) em vez
-  // de um loop JS manual (atob + charCodeAt byte a byte), que pra um
-  // EPUB de alguns MB significa milhões de iterações interpretadas.
-  // Se por algum motivo a URI "data:" não for aceita (limite de tamanho
-  // em engines mais antigas, por exemplo), cai pro método antigo — mais
-  // lento, mas funciona.
-  function base64ToArrayBufferFast(base64, mimeType) {
-    return new Promise(function (resolve) {
-      try {
-        var xhr = new XMLHttpRequest();
-        xhr.open("GET", "data:" + mimeType + ";base64," + base64, true);
-        xhr.responseType = "arraybuffer";
-        xhr.onload = function () {
-          if (xhr.response && xhr.response.byteLength > 0) {
-            resolve(xhr.response);
-          } else {
-            resolve(base64ToArrayBufferSlow(base64));
-          }
-        };
-        xhr.onerror = function () {
-          resolve(base64ToArrayBufferSlow(base64));
-        };
-        xhr.send();
-      } catch (e) {
-        resolve(base64ToArrayBufferSlow(base64));
-      }
-    });
-  }
-
+  // atob + charCodeAt byte a byte — mais lento que um decode nativo em
+  // teoria, mas O ÚNICO que se provou confiável nessa WebView. Uma
+  // tentativa anterior usava XMLHttpRequest sobre uma URI "data:" com o
+  // base64 inteiro embutido na própria URL pra decodificar em código
+  // nativo do motor; isso travava de forma reproduzível mesmo com um
+  // EPUB pequeno — bem o perfil de um bug de URL longa demais no
+  // parser dessa engine antiga, travando o próprio xhr.open() antes de
+  // sequer chamar send(). Como essa chamada nunca retornava, e a
+  // WebView processa chamadas de script uma de cada vez, isso também
+  // travava QUALQUER InvokeScriptAsync seguinte — inclusive o polling
+  // de estado, o que explicava a tela ficar parada sem nenhum progresso
+  // depois disso. Não reintroduzir esse atalho sem testar num aparelho
+  // de verdade.
   function base64ToArrayBufferSlow(base64) {
     var binary = atob(base64);
     var len = binary.length;
@@ -190,22 +173,32 @@
       return;
     }
 
-    base64ToArrayBufferFast(base64Data, "application/epub+zip")
-      .then(function (arrayBuffer) {
-        notify({ type: "progress", stage: "decodificado" });
-        book = ePub(arrayBuffer);
-        rendition = book.renderTo("viewer", {
-          width: "100%",
-          height: "100%",
-          flow: "scrolled-doc",
-          spread: "none",
-        });
+    var arrayBuffer;
+    try {
+      arrayBuffer = base64ToArrayBufferSlow(base64Data);
+    } catch (err) {
+      notify({ type: "error", message: "Falha ao decodificar o livro: " + String(err && err.message ? err.message : err) });
+      return;
+    }
+    notify({ type: "progress", stage: "decodificado" });
 
-        applyStyle(style);
-        wireRendition();
+    try {
+      book = ePub(arrayBuffer);
+      rendition = book.renderTo("viewer", {
+        width: "100%",
+        height: "100%",
+        flow: "scrolled-doc",
+        spread: "none",
+      });
 
-        return book.ready;
-      })
+      applyStyle(style);
+      wireRendition();
+    } catch (err) {
+      notify({ type: "error", message: "Falha ao inicializar o epub.js: " + String(err && err.message ? err.message : err) });
+      return;
+    }
+
+    book.ready
       .then(function () {
         notify({ type: "progress", stage: "processado" });
         return book.loaded.navigation;
