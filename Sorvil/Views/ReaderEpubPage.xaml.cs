@@ -45,11 +45,14 @@ namespace Sorvil.Views
         }
 
         // Fontes que já vêm instaladas no Windows 10 Mobile — não
-        // precisa baixar/empacotar nada.
+        // precisa baixar/empacotar nada. "Padrão" é string vazia de
+        // propósito: significa não mexer na fonte do livro (o CSS
+        // original do EPUB continua no comando) — só troca de verdade
+        // quando o usuário escolhe uma fonte específica.
         private static readonly string[] FontFamilyLabels = { "Padrão", "Segoe UI", "Times New Roman", "Verdana", "Consolas" };
         private static readonly string[] FontFamilyValues =
         {
-            "Georgia, 'EB Garamond', serif",
+            "",
             "'Segoe UI', sans-serif",
             "'Times New Roman', serif",
             "Verdana, sans-serif",
@@ -430,12 +433,22 @@ namespace Sorvil.Views
         }
 
         // — navegação de página (usada pelos botões e pelas zonas de toque) —
+        //
+        // Não decide "virar página vs. virar capítulo" comparando
+        // _pageIndexInChapter contra um _totalPagesInChapter pré-calculado
+        // — esse total é só uma estimativa (usada pro indicador de
+        // progresso) e, se sair errada, a comparação nasce falsa e todo
+        // toque de "próxima" pula direto pro capítulo seguinte, mesmo com
+        // o capítulo atual cheio de texto ainda não lido. Em vez disso,
+        // TryStepPageAsync pergunta pra própria WebView, na hora, se ainda
+        // dá pra rolar mais uma tela — só troca de capítulo quando a
+        // rolagem de verdade já bateu no fim (ou início).
 
         private async Task GoToNextAsync()
         {
-            if (_pageIndexInChapter < _totalPagesInChapter - 1)
+            bool advanced = await TryStepPageAsync(1);
+            if (advanced)
             {
-                await GoToPageAsync(_pageIndexInChapter + 1);
                 UpdateIndicator();
                 await SavePositionAsync();
             }
@@ -447,9 +460,9 @@ namespace Sorvil.Views
 
         private async Task GoToPreviousAsync()
         {
-            if (_pageIndexInChapter > 0)
+            bool advanced = await TryStepPageAsync(-1);
+            if (advanced)
             {
-                await GoToPageAsync(_pageIndexInChapter - 1);
                 UpdateIndicator();
                 await SavePositionAsync();
             }
@@ -892,26 +905,49 @@ namespace Sorvil.Views
             }
         }
 
-        // Mesma expressão usada em GetTotalPagesAsync e GoToPageAsync —
-        // texto idêntico de propósito, pra nunca haver dois cálculos de
-        // "altura de página" ligeiramente diferentes brigando entre si.
+        // window.innerHeight em vez de document.documentElement.clientHeight
+        // — mais confiável entre modos de renderização (quirks vs.
+        // standards) do que ler direto do elemento raiz, que é justo onde
+        // um HTML de EPUB real (às vezes sem doctype "limpo") pode fazer a
+        // WebView escolher um modo diferente do esperado.
+        private const string ViewportHeightJs = "window.innerHeight";
+
+        // window.pageYOffset com fallback pra scrollTop de documentElement
+        // e de body — cobre tanto modo standards (html é quem rola) quanto
+        // quirks (body é quem rola), sem precisar saber qual é qual.
+        private const string ScrollTopJs = "(window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0)";
+
+        // Maior entre scrollHeight de body e de documentElement — mesma
+        // razão do ViewportHeightJs: em vez de apostar em qual dos dois
+        // elementos é "o scroller de verdade" neste documento específico,
+        // usa o maior valor entre os dois (o que não é o scroller real
+        // tende a só reportar a altura do viewport, sempre menor).
+        private const string ContentHeightJs = "Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)";
+
+        // Mesma expressão usada em GetTotalPagesAsync, GoToPageAsync e
+        // TryStepPageAsync — texto idêntico de propósito, pra nunca haver
+        // dois cálculos de "altura de página" ligeiramente diferentes
+        // brigando entre si.
         private static string PageHeightJs(int margin)
         {
             return "(function() {" +
                 "var lh = parseFloat(getComputedStyle(document.body).lineHeight) || 24;" +
-                "var raw = document.documentElement.clientHeight - (" + margin + " * 2);" +
+                "var raw = " + ViewportHeightJs + " - (" + margin + " * 2);" +
                 "var lines = Math.max(1, Math.floor(raw / lh));" +
                 "return lines * lh;" +
                 "})()";
         }
 
+        // Só usado pro indicador de progresso (aproximado) — a decisão de
+        // "ainda cabe mais uma página aqui ou já é hora de trocar de
+        // capítulo" nunca depende deste número, ver TryStepPageAsync.
         private async Task<int> GetTotalPagesAsync()
         {
             int margin = ReaderPreferenceStore.GetMarginPx();
             string script =
                 "(function() {" +
                 "var pageHeight = " + PageHeightJs(margin) + ";" +
-                "var totalHeight = Math.ceil(document.body.scrollHeight);" +
+                "var totalHeight = " + ContentHeightJs + ";" +
                 "return Math.max(1, Math.ceil(totalHeight / pageHeight));" +
                 "})();";
             string result = await InvokeAsync(script);
@@ -919,16 +955,54 @@ namespace Sorvil.Views
             return int.TryParse(result, out pages) && pages > 0 ? pages : 1;
         }
 
+        // Salto absoluto (abrir capítulo na primeira página, ou na última
+        // — startPage < 0 — ao entrar vindo de trás). Sempre pinça o alvo
+        // dentro de [0, maxScroll] medido na hora, então mesmo se
+        // pageIndex vier de uma estimativa errada (ex.: _totalPagesInChapter
+        // aproximado), a posição final ainda cai certinha no fim de
+        // verdade do capítulo.
         private async Task GoToPageAsync(int pageIndex)
         {
-            _pageIndexInChapter = pageIndex;
             int margin = ReaderPreferenceStore.GetMarginPx();
             string script =
                 "(function() {" +
                 "var pageHeight = " + PageHeightJs(margin) + ";" +
-                "window.scrollTo(0, Math.round(" + pageIndex + " * pageHeight));" +
+                "var maxScroll = Math.max(0, " + ContentHeightJs + " - " + ViewportHeightJs + ");" +
+                "var target = Math.min(maxScroll, Math.max(0, Math.round(" + pageIndex + " * pageHeight)));" +
+                "window.scrollTo(0, target);" +
+                "return Math.round(target / pageHeight);" +
                 "})();";
-            await InvokeAsync(script);
+            string result = await InvokeAsync(script);
+            int actualIndex;
+            _pageIndexInChapter = int.TryParse(result, out actualIndex) ? actualIndex : Math.Max(0, pageIndex);
+        }
+
+        // Passo relativo (usado pelos botões/zonas de toque de próxima e
+        // anterior): mede rolagem atual e o quanto ainda dá pra rolar no
+        // MESMO script, então nunca fica dessincronizado de nenhum total
+        // pré-calculado. Retorna false (sem mexer em nada) quando já está
+        // na borda — aí quem chamou decide trocar de capítulo.
+        private async Task<bool> TryStepPageAsync(int direction)
+        {
+            int margin = ReaderPreferenceStore.GetMarginPx();
+            string script =
+                "(function() {" +
+                "var pageHeight = " + PageHeightJs(margin) + ";" +
+                "var maxScroll = Math.max(0, " + ContentHeightJs + " - " + ViewportHeightJs + ");" +
+                "var current = " + ScrollTopJs + ";" +
+                "var target = Math.min(maxScroll, Math.max(0, current + (" + direction + " * pageHeight)));" +
+                "if (Math.abs(target - current) < 2) { return -1; }" +
+                "window.scrollTo(0, target);" +
+                "return Math.round(target / pageHeight);" +
+                "})();";
+            string result = await InvokeAsync(script);
+            int newIndex;
+            if (!int.TryParse(result, out newIndex) || newIndex < 0)
+            {
+                return false;
+            }
+            _pageIndexInChapter = newIndex;
+            return true;
         }
 
         // Mudar fonte/tema/espaçamento/margem muda quantas páginas cabem
@@ -971,45 +1045,59 @@ namespace Sorvil.Views
                     break;
             }
 
-            // EPUBs reais trazem a PRÓPRIA folha de estilo (link/style no
-            // head) — removida antes de aplicar a nossa, senão ela briga
-            // com a largura/fonte que a gente define. width:100%/
-            // max-width:none em html/body garante que a largura de verdade
-            // sempre bate com o viewport, não o que o CSS original do livro
-            // pedia pra tela de desktop.
+            // Deixa o CSS do próprio livro em pé — o design original
+            // (recuo/indentação, letra capitular, título centralizado,
+            // cores de destaque, etc.) é exatamente o que o autor/editora
+            // pensou pro livro, e o pedido explícito foi não recriar isso
+            // do zero. Só quatro coisas são realmente controladas por
+            // aqui, tudo o mais fica por conta do livro:
             //
-            // Sem altura fixa nem column-* nenhum: o body flui normalmente
-            // (altura natural, cresce conforme o conteúdo), e quem decide
-            // "que pedaço mostrar" é só a posição de rolagem — ver
-            // GoToPageAsync/GetTotalPagesAsync/PageHeightJs. overflow:hidden
-            // em html só existe pra esconder a barra de rolagem/gesto nativo
-            // de arrastar (a rolagem programática via scrollTo continua
-            // funcionando normalmente com overflow:hidden — isso só bloqueia
-            // rolagem iniciada pelo usuário, não script).
+            // 1. Tamanho da fonte: escala html { font-size: X% } (a base
+            //    "em"/"rem" de tudo) em vez de forçar um valor fixo em
+            //    body — qualquer CSS do livro que use unidade relativa
+            //    (o padrão em EPUB) escala proporcionalmente junto,
+            //    preservando a hierarquia de tamanhos que o livro definiu
+            //    (título maior que corpo, nota de rodapé menor, etc.).
+            // 2. Margem: padding em body.
+            // 3. Espaçamento de linha: line-height em body (herda pra
+            //    tudo que não define o próprio).
+            // 4. Cor de fundo/tema: background-color forçado; a cor de
+            //    texto (foreground) só é aplicada em body SEM !important
+            //    — então continua sendo a cor-base herdada por tudo que o
+            //    livro não colore explicitamente, mas qualquer coisa que
+            //    o próprio livro pinta de propósito (uma citação, um
+            //    destaque) continua com a cor que o livro escolheu, não a
+            //    nossa.
             //
-            // Fundo é forçado tanto em html quanto em body, e qualquer
-            // elemento interno tem o próprio fundo zerado (background-color:
-            // transparent) — sem isso, uma div/wrapper do próprio EPUB com
-            // fundo branco embutido continua aparecendo por cima do tema
-            // escolhido.
+            // Fonte (font-family) só entra na jogada se o usuário
+            // escolheu uma manualmente no painel — "Padrão" é string
+            // vazia, então o CSS do livro decide sozinho.
+            //
+            // overflow:hidden em html só esconde a barra/gesto de rolagem
+            // nativa (rolagem programática via scrollTo continua
+            // funcionando normalmente com overflow:hidden — isso só
+            // bloqueia rolagem iniciada pelo usuário, não script);
+            // max-width:100% em html/img é só uma rede de segurança contra
+            // um layout do próprio livro que force algo mais largo que a
+            // tela (evita corte horizontal), não uma reescrita do design.
+            string fontFamilyCss = string.IsNullOrEmpty(fontFamily)
+                ? string.Empty
+                : "font-family: " + fontFamily + " !important; ";
             string script =
                 "(function() {" +
-                "var foreign = document.querySelectorAll('link[rel=\"stylesheet\"], style:not(#sorvil-reader-style)');" +
-                "for (var i = 0; i < foreign.length; i++) { foreign[i].parentNode.removeChild(foreign[i]); }" +
                 "var style = document.getElementById('sorvil-reader-style');" +
                 "if (!style) { style = document.createElement('style'); style.id = 'sorvil-reader-style'; document.head.appendChild(style); }" +
                 "style.innerHTML = " +
-                "'html { margin:0 !important; padding:0 !important; width:100% !important; max-width:none !important; overflow:hidden !important; background-color: " + background + " !important; } ' +" +
-                "'body { margin:0 !important; width:100% !important; max-width:none !important; box-sizing:border-box !important; " +
+                "'html { max-width: 100% !important; overflow: hidden !important; background-color: " + background + " !important; font-size: " + fontSize + "% !important; } ' +" +
+                "'body { margin: 0 !important; max-width: 100% !important; box-sizing: border-box !important; " +
                 "padding: " + margin + "px " + margin + "px !important; " +
-                "font-size: " + fontSize + "% !important; " +
-                "font-family: " + fontFamily + " !important; " +
                 "background-color: " + background + " !important; " +
+                "color: " + foreground + "; " +
                 "line-height: " + lineSpacing.ToString(System.Globalization.CultureInfo.InvariantCulture) + " !important; " +
                 "text-align: " + justification + " !important; " +
+                fontFamilyCss +
                 "} ' +" +
-                "'* { color: " + foreground + " !important; background-color: transparent !important; max-width: 100% !important; } ' +" +
-                "'img, table { max-width: 100% !important; height: auto !important; background-color: initial !important; }';" +
+                "'img { max-width: 100% !important; height: auto !important; }';" +
                 "void document.body.offsetHeight;" +
                 "})();";
 

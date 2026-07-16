@@ -132,10 +132,12 @@ namespace Sorvil.Services
 
         // Pilha de font-family CSS — as opções oferecidas usam fontes que
         // já vêm instaladas no Windows 10 Mobile, não fontes baixadas.
+        // Vazio (o padrão) significa "não mexe": o leitor não injeta
+        // font-family nenhum, deixando o CSS do próprio livro decidir.
         public static string GetFontFamily()
         {
             object value = ApplicationData.Current.LocalSettings.Values[FontFamilyKey];
-            return value as string ?? "Georgia, 'EB Garamond', serif";
+            return value as string ?? string.Empty;
         }
 
         public static void SetFontFamily(string fontFamily)
