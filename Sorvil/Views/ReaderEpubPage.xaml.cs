@@ -731,7 +731,7 @@ namespace Sorvil.Views
                 return;
             }
             ReaderPreferenceStore.SetFontSizePercent((int)e.NewValue);
-            await ReapplyStyleAndRepaginateAsync();
+            await DebouncedReapplyStyleAsync();
         }
 
         private async void LineSpacingSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
@@ -741,7 +741,7 @@ namespace Sorvil.Views
                 return;
             }
             ReaderPreferenceStore.SetLineSpacing(Math.Round(e.NewValue, 1));
-            await ReapplyStyleAndRepaginateAsync();
+            await DebouncedReapplyStyleAsync();
         }
 
         private async void MarginSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
@@ -751,6 +751,30 @@ namespace Sorvil.Views
                 return;
             }
             ReaderPreferenceStore.SetMarginPx((int)e.NewValue);
+            await DebouncedReapplyStyleAsync();
+        }
+
+        // Arrastar um Slider dispara ValueChanged uma vez por pixel — sem
+        // isso, cada tique da arrastada dispara sua própria sequência de 3
+        // idas-e-voltas assíncronas até a WebView (ApplyReaderStyleAsync +
+        // GetTotalPagesAsync + GoToPageAsync), e várias ficam concorrentes
+        // ao mesmo tempo; a que terminar por último "vence" mesmo que não
+        // seja a mais recente, então o resultado final às vezes nem
+        // reflete o valor onde o slider realmente parou. Só a chamada mais
+        // recente (depois de a arrastada ficar quieta por 250ms) de fato
+        // reaplica o estilo — as intermediárias são descartadas. O gesto
+        // de pinça não precisa disso porque só dispara uma vez, no fim do
+        // gesto (ManipulationCompleted), não a cada frame.
+        private int _styleChangeToken;
+
+        private async Task DebouncedReapplyStyleAsync()
+        {
+            int myToken = ++_styleChangeToken;
+            await Task.Delay(250);
+            if (myToken != _styleChangeToken)
+            {
+                return;
+            }
             await ReapplyStyleAndRepaginateAsync();
         }
 
@@ -917,12 +941,16 @@ namespace Sorvil.Views
         // quirks (body é quem rola), sem precisar saber qual é qual.
         private const string ScrollTopJs = "(window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0)";
 
-        // Maior entre scrollHeight de body e de documentElement — mesma
-        // razão do ViewportHeightJs: em vez de apostar em qual dos dois
-        // elementos é "o scroller de verdade" neste documento específico,
-        // usa o maior valor entre os dois (o que não é o scroller real
-        // tende a só reportar a altura do viewport, sempre menor).
-        private const string ContentHeightJs = "Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)";
+        // Maior entre três medidas diferentes de "altura de verdade do
+        // conteúdo": scrollHeight de body, de documentElement, e a altura
+        // de layout de body (getBoundingClientRect, que é geometria pura —
+        // não depende de qual elemento essa WebView específica considera
+        // "o scroller", só do quanto o conteúdo realmente ocupa). Sem essa
+        // terceira medida, um scrollHeight que saísse igual à altura da
+        // tela (em vez da altura real do capítulo inteiro) fazia
+        // TryStepPageAsync achar que já estava no fim de todo capítulo, e
+        // virar de página sempre pulava direto pro capítulo seguinte.
+        private const string ContentHeightJs = "Math.max(document.body.scrollHeight, document.documentElement.scrollHeight, document.body.getBoundingClientRect().height)";
 
         // Mesma expressão usada em GetTotalPagesAsync, GoToPageAsync e
         // TryStepPageAsync — texto idêntico de propósito, pra nunca haver
@@ -1053,11 +1081,14 @@ namespace Sorvil.Views
             // aqui, tudo o mais fica por conta do livro:
             //
             // 1. Tamanho da fonte: escala html { font-size: X% } (a base
-            //    "em"/"rem" de tudo) em vez de forçar um valor fixo em
-            //    body — qualquer CSS do livro que use unidade relativa
-            //    (o padrão em EPUB) escala proporcionalmente junto,
-            //    preservando a hierarquia de tamanhos que o livro definiu
-            //    (título maior que corpo, nota de rodapé menor, etc.).
+            //    "em"/"rem" de tudo). Cobre a maioria dos EPUBs (que usam
+            //    unidade relativa, o padrão do formato), mas alguns
+            //    fixam px direto nas tags de texto — pra esses também
+            //    responderem, p/div/li/blockquote (não h1-h6, que ficam
+            //    livres pra manter a hierarquia visual do livro) recebem
+            //    font-size:1em !important, forçando herdar do ancestral
+            //    (em cascata, até chegar em body/html, que é quem a gente
+            //    controla) em vez do valor fixo do livro.
             // 2. Margem: padding em body.
             // 3. Espaçamento de linha: line-height em body (herda pra
             //    tudo que não define o próprio).
@@ -1073,13 +1104,15 @@ namespace Sorvil.Views
             // escolheu uma manualmente no painel — "Padrão" é string
             // vazia, então o CSS do livro decide sozinho.
             //
-            // overflow:hidden em html só esconde a barra/gesto de rolagem
-            // nativa (rolagem programática via scrollTo continua
-            // funcionando normalmente com overflow:hidden — isso só
-            // bloqueia rolagem iniciada pelo usuário, não script);
             // max-width:100% em html/img é só uma rede de segurança contra
             // um layout do próprio livro que force algo mais largo que a
             // tela (evita corte horizontal), não uma reescrita do design.
+            // Sem overflow:hidden em html de propósito — essa WebView
+            // específica parecia medir scrollHeight errado (só a altura
+            // da viewport, não a do capítulo inteiro) com overflow:hidden
+            // no elemento raiz, o que fazia TryStepPageAsync sempre achar
+            // que não tinha mais nada pra rolar e pular direto pro
+            // próximo capítulo mesmo no meio de um capítulo longo.
             string fontFamilyCss = string.IsNullOrEmpty(fontFamily)
                 ? string.Empty
                 : "font-family: " + fontFamily + " !important; ";
@@ -1096,7 +1129,7 @@ namespace Sorvil.Views
                 "var style = document.getElementById('sorvil-reader-style');" +
                 "if (!style) { style = document.createElement('style'); style.id = 'sorvil-reader-style'; document.head.appendChild(style); }" +
                 "style.innerHTML = " +
-                "\"html { max-width: 100% !important; overflow: hidden !important; background-color: " + background + " !important; font-size: " + fontSize + "% !important; } \" +" +
+                "\"html { max-width: 100% !important; background-color: " + background + " !important; font-size: " + fontSize + "% !important; } \" +" +
                 "\"body { margin: 0 !important; max-width: 100% !important; box-sizing: border-box !important; " +
                 "padding: " + margin + "px " + margin + "px !important; " +
                 "background-color: " + background + " !important; " +
@@ -1105,6 +1138,7 @@ namespace Sorvil.Views
                 "text-align: " + justification + " !important; " +
                 fontFamilyCss +
                 "} \" +" +
+                "\"p, div, li, blockquote { font-size: 1em !important; } \" +" +
                 "\"img { max-width: 100% !important; height: auto !important; }\";" +
                 "void document.body.offsetHeight;" +
                 "})();";
