@@ -1157,6 +1157,15 @@ namespace Sorvil.Views
         // mesmo tempo.
         private readonly SemaphoreSlim _scriptCallLock = new SemaphoreSlim(1, 1);
 
+        // Engolir a exceção aqui e só devolver null (como era antes)
+        // mascarava qualquer chamada que estivesse falhando de verdade —
+        // o laço de envio de pedaços incrementa o contador e mostra
+        // "Enviando X/Y" INDEPENDENTE do retorno desta função, então uma
+        // falha silenciosa em toda chamada (ex.: window.SorvilReader não
+        // existir de verdade nesse conteúdo) passava despercebida atrás
+        // de um progresso que parecia real. Agora toda falha vira uma
+        // mensagem visível — é o único jeito de saber se o problema é
+        // "a chamada falha" ou "a chamada funciona mas o JS trava".
         private async Task<string> InvokeAsync(string functionName, string[] args)
         {
             await _scriptCallLock.WaitAsync();
@@ -1164,8 +1173,9 @@ namespace Sorvil.Views
             {
                 return await ContentWebView.InvokeScriptAsync(functionName, args);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                ShowLoadError("Falha ao chamar " + functionName + "(): " + ex.Message);
                 return null;
             }
             finally
