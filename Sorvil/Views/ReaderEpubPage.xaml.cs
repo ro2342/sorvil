@@ -24,8 +24,10 @@ namespace Sorvil.Views
     // RichTextBlock (primeira "página") encadeado com RichTextBlockOverflow
     // (páginas seguintes) via OverflowContentTarget — o próprio motor de
     // texto do XAML decide onde cada página termina, sem depender de
-    // nenhum motor de CSS/coluna de terceiros. Só a página atual fica
-    // visível (Visibility) por vez; as outras já ficam prontas por baixo.
+    // nenhum motor de CSS/coluna de terceiros. A cadeia inteira do capítulo
+    // fica pronta num host offscreen (OffscreenPaginationHost); só a página
+    // atual é movida pra dentro do PagesHost visível por vez (ShowPage) —
+    // nunca há duas páginas de verdade dividindo o mesmo espaço visível.
     //
     // Essa troca veio depois de várias tentativas de fazer o mesmo via
     // WebView+CSS (column-width/column-count) esbarrarem repetidas vezes
@@ -304,6 +306,7 @@ namespace Sorvil.Views
                 _bookFolder, _manifest.SpineFiles[_chapterIndex], style);
 
             PagesHost.Children.Clear();
+            OffscreenPaginationHost.Children.Clear();
             _currentPages = new List<FrameworkElement>();
 
             double pageWidth = PagesHost.ActualWidth;
@@ -322,7 +325,7 @@ namespace Sorvil.Views
                 main.Blocks.Add(paragraph);
             }
 
-            PagesHost.Children.Add(main);
+            OffscreenPaginationHost.Children.Add(main);
             main.UpdateLayout();
             _currentPages.Add(main);
 
@@ -347,7 +350,7 @@ namespace Sorvil.Views
                     ((RichTextBlockOverflow)previous).OverflowContentTarget = overflow;
                 }
 
-                PagesHost.Children.Add(overflow);
+                OffscreenPaginationHost.Children.Add(overflow);
                 overflow.UpdateLayout();
                 _currentPages.Add(overflow);
 
@@ -358,12 +361,28 @@ namespace Sorvil.Views
             _totalPagesInChapter = _currentPages.Count;
         }
 
+        // PagesHost (a área visível) nunca tem mais de um filho: trocar de
+        // página é mover fisicamente o container de volta pro host offscreen
+        // (onde a cadeia inteira do capítulo continua viva, pronta pra
+        // qualquer outra página ser exibida na hora) e trazer o alvo pra
+        // dentro do PagesHost. Um UIElement só pode ter um Parent por vez —
+        // por isso remove antes de adicionar em cada lado.
         private void ShowPage(int pageIndex)
         {
             _pageIndexInChapter = pageIndex;
-            for (int i = 0; i < _currentPages.Count; i++)
+
+            if (PagesHost.Children.Count > 0)
             {
-                _currentPages[i].Visibility = i == pageIndex ? Visibility.Visible : Visibility.Collapsed;
+                UIElement current = PagesHost.Children[0];
+                PagesHost.Children.Clear();
+                OffscreenPaginationHost.Children.Add(current);
+            }
+
+            if (pageIndex >= 0 && pageIndex < _currentPages.Count)
+            {
+                FrameworkElement target = _currentPages[pageIndex];
+                OffscreenPaginationHost.Children.Remove(target);
+                PagesHost.Children.Add(target);
             }
         }
 

@@ -54,6 +54,20 @@
              prontos por baixo pra virar página ser instantâneo. -->
         <Grid x:Name="PagesHost" SizeChanged="PagesHost_SizeChanged" Background="White" />
 
+        <!-- Onde a cadeia inteira de páginas do capítulo (RichTextBlock +
+             RichTextBlockOverflow) vive de verdade — precisa ficar "Visible"
+             de verdade (não Collapsed) pra o layout calcular HasOverflowContent
+             direito, então em vez de esconder as páginas por Visibility (o
+             que deixava mais de uma "viva" no mesmo Grid do PagesHost ao
+             mesmo tempo — a "segunda coluna" colada na primeira), elas ficam
+             aqui, fisicamente fora da viewport via RenderTransform, e
+             ShowPage() move só a página atual pra dentro do PagesHost. -->
+        <Canvas x:Name="OffscreenPaginationHost" IsHitTestVisible="False">
+            <Canvas.RenderTransform>
+                <TranslateTransform X="-10000" Y="-10000" />
+            </Canvas.RenderTransform>
+        </Canvas>
+
         <!-- "Brilho": um overlay preto semitransparente por cima de tudo,
              com a Opacity controlada por um slider — não mexe em brilho de
              hardware nenhum (evita depender de mais uma API de plataforma,
