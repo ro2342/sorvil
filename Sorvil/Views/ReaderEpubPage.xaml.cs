@@ -174,13 +174,26 @@ namespace Sorvil.Views
             string epubJsContent = await FileIO.ReadTextAsync(await epubJsFolder.GetFileAsync("epub.legacy.min.js"));
             string bridgeContent = await FileIO.ReadTextAsync(await epubJsFolder.GetFileAsync("reader-bridge.js"));
 
+            // #sorvil-console é um elemento SEPARADO de #viewer — ele
+            // fica por cima enquanto o livro carrega (checkpoint() em
+            // reader-bridge.js escreve nele) e reader-bridge.js o remove
+            // sozinho assim que o livro termina de abrir de verdade. Uma
+            // versão anterior reaproveitava o próprio #viewer pro
+            // console, e cada checkpoint() escrito DEPOIS de
+            // book.renderTo("viewer", ...) sobrescrevia o iframe que o
+            // epub.js já tinha desenhado ali — o livro carregava com
+            // sucesso (todos os checkpoints rodavam) mas nunca aparecia,
+            // porque o próprio diagnóstico apagava o resultado.
             return "<!DOCTYPE html><html><head><meta charset=\"utf-8\" />" +
                 "<style>html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#ffffff;}" +
-                "#viewer{width:100%;height:100%;}</style>" +
+                "#viewer{width:100%;height:100%;}" +
+                "#sorvil-console{position:fixed;top:0;left:0;right:0;bottom:0;overflow:auto;padding:12px;" +
+                "font-size:16px;line-height:1.5;font-family:Consolas,monospace;color:#0f0;background:#000;" +
+                "z-index:99999;white-space:pre-wrap;word-break:break-all;}</style>" +
                 "<script>" + jsZipContent + "</script>" +
                 "<script>" + epubJsContent + "</script>" +
                 "<script>" + bridgeContent + "</script>" +
-                "</head><body><div id=\"viewer\"></div></body></html>";
+                "</head><body><div id=\"viewer\"></div><div id=\"sorvil-console\"></div></body></html>";
         }
 
         // Esta página navega no Frame raiz da janela (App.RootFrame), não

@@ -50,37 +50,45 @@
   }
 
   // Console de diagnóstico de última instância: cada checkpoint() ACUMULA
-  // uma linha (não sobrescreve) direto no <div id="viewer"> — a própria
-  // WebView já visível na tela — sem passar por notify()/ScriptNotify
-  // nem pelo polling de getState(), que já se provaram não confiáveis
-  // pra reportar progresso nessa engine. É só manipulação de DOM local,
-  // não depende de nenhum canal de comunicação que possa estar quebrado:
-  // se a linha aparecer na tela, aquele passo rodou; a última linha da
-  // lista é sempre o ponto exato onde travou (ou o erro, se algo
-  // lançou). O C# esconde o spinner/texto de carregamento assim que
-  // esse console começa a ser usado, pra não competir visualmente.
+  // uma linha (não sobrescreve) num elemento SEPARADO (#sorvil-console,
+  // não #viewer) — sem passar por notify()/ScriptNotify nem pelo
+  // polling de getState(), que já se provaram não confiáveis pra
+  // reportar progresso nessa engine. É só manipulação de DOM local, não
+  // depende de nenhum canal de comunicação que possa estar quebrado: se
+  // a linha aparecer na tela, aquele passo rodou. Precisa ser um
+  // elemento diferente de #viewer: uma versão anterior escrevia direto
+  // em #viewer (onde book.renderTo() desenha o livro) e cada checkpoint
+  // chamado DEPOIS do renderTo() apagava o iframe que o epub.js já
+  // tinha desenhado ali — o livro carregava com sucesso (todo checkpoint
+  // rodava) mas nunca aparecia, porque o próprio diagnóstico apagava o
+  // resultado. hideConsole() remove #sorvil-console assim que o livro
+  // termina de abrir de verdade, revelando #viewer por baixo.
   var _log = [];
 
   function checkpoint(text) {
     try {
       _log.push(text);
-      var el = document.getElementById("viewer");
+      var el = document.getElementById("sorvil-console");
       if (el) {
-        var html =
-          '<div style="position:fixed;top:0;left:0;right:0;bottom:0;' +
-          "overflow:auto;padding:12px;font-size:16px;line-height:1.5;" +
-          'font-family:Consolas,monospace;color:#0f0;background:#000;' +
-          'z-index:99999;white-space:pre-wrap;word-break:break-all;">' +
-          _log
-            .map(function (line, i) {
-              return i + 1 + ". " + line;
-            })
-            .join("\n") +
-          "</div>";
-        el.innerHTML = html;
+        el.textContent = _log
+          .map(function (line, i) {
+            return i + 1 + ". " + line;
+          })
+          .join("\n");
       }
     } catch (e) {
       // Se nem isso funcionar, não tem mais nada barato a tentar.
+    }
+  }
+
+  function hideConsole() {
+    try {
+      var el = document.getElementById("sorvil-console");
+      if (el && el.parentNode) {
+        el.parentNode.removeChild(el);
+      }
+    } catch (e) {
+      // Não crítico — na pior das hipóteses o console fica na tela.
     }
   }
 
@@ -262,6 +270,9 @@
         return rendition.display(startCfi || undefined).catch(function () {
           return rendition.display();
         });
+      })
+      .then(function () {
+        hideConsole();
       })
       .catch(function (err) {
         checkpoint("ERRO no passo 7-8 (book.ready/navigation/display): " + (err && err.message ? err.message : String(err)));
