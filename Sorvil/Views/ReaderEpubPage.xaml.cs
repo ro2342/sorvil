@@ -466,23 +466,37 @@ namespace Sorvil.Views
             }
         }
 
+        // Chamado tanto por ContentWebView_ScriptNotify (async void, sem
+        // try/catch próprio) quanto pelo laço de StartStatePollingAsync
+        // (também async void) — sem um try/catch aqui dentro, qualquer
+        // exceção não tratada em HandleReady/HandleRelocatedAsync vira
+        // uma exceção não tratada do app inteiro (App_UnhandledException
+        // em App.xaml.cs), derrubando o leitor com um diálogo genérico
+        // em vez de mostrar o que realmente aconteceu.
         private async Task ProcessBridgeMessageAsync(JsonObject msg)
         {
-            string type = msg.GetNamedString("type", string.Empty);
-            switch (type)
+            try
             {
-                case "progress":
-                    HandleProgress(msg);
-                    break;
-                case "ready":
-                    HandleReady(msg);
-                    break;
-                case "relocated":
-                    await HandleRelocatedAsync(msg);
-                    break;
-                case "error":
-                    ShowLoadError(msg.GetNamedString("message", "Erro desconhecido no leitor."));
-                    break;
+                string type = msg.GetNamedString("type", string.Empty);
+                switch (type)
+                {
+                    case "progress":
+                        HandleProgress(msg);
+                        break;
+                    case "ready":
+                        HandleReady(msg);
+                        break;
+                    case "relocated":
+                        await HandleRelocatedAsync(msg);
+                        break;
+                    case "error":
+                        ShowLoadError(msg.GetNamedString("message", "Erro desconhecido no leitor."));
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                ShowLoadError("Erro ao processar mensagem do leitor: " + ex.Message);
             }
         }
 
