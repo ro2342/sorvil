@@ -276,6 +276,7 @@ namespace Sorvil.Views
         private void ShowLoadError(string message)
         {
             LoadingRing.IsActive = false;
+            LoadingStatusText.Visibility = Visibility.Visible;
             LoadingStatusText.Text = message;
         }
 
@@ -353,10 +354,16 @@ namespace Sorvil.Views
                 // enorme como o gargalo de verdade. Em pedaços, cada
                 // chamada é pequena e rápida, e o usuário vê progresso de
                 // verdade em vez de uma tela parada.
+                // A partir daqui, o console de diagnóstico dentro da
+                // própria WebView (reader-bridge.js, checkpoint()) é quem
+                // manda na tela — esconde o spinner/texto XAML (que fica
+                // por cima da WebView) pra não competir visualmente.
+                LoadingRing.IsActive = false;
+                LoadingStatusText.Visibility = Visibility.Collapsed;
+
                 int chunkCount = (base64.Length + ChunkSize - 1) / ChunkSize;
                 _pendingChunkCount = chunkCount;
                 step = "enviando o livro pro leitor (pedaço 0/" + chunkCount + ")";
-                LoadingStatusText.Text = "Enviando... 0/" + chunkCount;
                 await InvokeAsync("SorvilReader.beginBook", new[] { chunkCount.ToString() });
                 int chunkIndex = 0;
                 for (int offset = 0; offset < base64.Length; offset += ChunkSize)
@@ -365,13 +372,7 @@ namespace Sorvil.Views
                     string chunk = base64.Substring(offset, length);
                     await InvokeAsync("SorvilReader.appendBookChunk", new[] { chunk });
                     chunkIndex++;
-                    // Atualiza o texto direto daqui, sem depender do
-                    // ScriptNotify de volta do JS pra esse número — dá pra
-                    // ver o progresso mesmo se o canal de eventos JS->C#
-                    // não estiver chegando por algum motivo específico do
-                    // conteúdo carregado via NavigateToString.
                     step = "enviando o livro pro leitor (pedaço " + chunkIndex + "/" + chunkCount + ")";
-                    LoadingStatusText.Text = "Enviando... " + chunkIndex + "/" + chunkCount;
                 }
 
                 step = "abrindo o livro no epub.js";

@@ -49,22 +49,35 @@
     }
   }
 
-  // Diagnóstico de última instância: escreve texto GRANDE direto no
-  // <div id="viewer"> (a própria WebView, já visível na tela, por trás
-  // do spinner pequeno e centralizado de carregamento) — sem passar por
-  // notify()/ScriptNotify nem pelo polling de getState(), que já se
-  // provaram não confiáveis pra reportar progresso nessa engine. Isso é
-  // só manipulação de DOM local, não depende de nenhum canal de
-  // comunicação que possa estar quebrado — se aparecer na tela, aquele
-  // passo rodou; se a tela parar nalgum checkpoint, é ali que trava.
+  // Console de diagnóstico de última instância: cada checkpoint() ACUMULA
+  // uma linha (não sobrescreve) direto no <div id="viewer"> — a própria
+  // WebView já visível na tela — sem passar por notify()/ScriptNotify
+  // nem pelo polling de getState(), que já se provaram não confiáveis
+  // pra reportar progresso nessa engine. É só manipulação de DOM local,
+  // não depende de nenhum canal de comunicação que possa estar quebrado:
+  // se a linha aparecer na tela, aquele passo rodou; a última linha da
+  // lista é sempre o ponto exato onde travou (ou o erro, se algo
+  // lançou). O C# esconde o spinner/texto de carregamento assim que
+  // esse console começa a ser usado, pra não competir visualmente.
+  var _log = [];
+
   function checkpoint(text) {
     try {
+      _log.push(text);
       var el = document.getElementById("viewer");
       if (el) {
-        el.innerHTML =
-          '<div style="position:fixed;top:0;left:0;right:0;padding:16px;' +
-          'font-size:22px;font-family:sans-serif;color:#000;background:#fff;' +
-          'z-index:99999;">' + text + "</div>";
+        var html =
+          '<div style="position:fixed;top:0;left:0;right:0;bottom:0;' +
+          "overflow:auto;padding:12px;font-size:16px;line-height:1.5;" +
+          'font-family:Consolas,monospace;color:#0f0;background:#000;' +
+          'z-index:99999;white-space:pre-wrap;word-break:break-all;">' +
+          _log
+            .map(function (line, i) {
+              return i + 1 + ". " + line;
+            })
+            .join("\n") +
+          "</div>";
+        el.innerHTML = html;
       }
     } catch (e) {
       // Se nem isso funcionar, não tem mais nada barato a tentar.
@@ -271,12 +284,14 @@
 
   window.SorvilReader = {
     beginBook: function (totalChunks) {
+      checkpoint("beginBook chamado, esperando " + totalChunks + " pedaços");
       _bookChunks = [];
       notify({ type: "progress", stage: "recebendo", done: 0, total: totalChunks });
     },
 
     appendBookChunk: function (chunk) {
       _bookChunks.push(chunk);
+      checkpoint("pedaço " + _bookChunks.length + " recebido (" + chunk.length + " chars)");
       notify({ type: "progress", stage: "recebendo", done: _bookChunks.length });
     },
 
@@ -321,4 +336,10 @@
       return JSON.stringify(_state);
     },
   };
+
+  checkpoint(
+    "bridge carregado — ePub existe? " + (typeof ePub) +
+    " | JSZip existe? " + (typeof JSZip) +
+    " | window.external? " + (typeof window.external)
+  );
 })();
