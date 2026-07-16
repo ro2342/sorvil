@@ -88,37 +88,64 @@ fail referencing a type that "doesn't exist").
   reader needs to own the whole screen above the shell's header/SplitView —
   see `Services/ReaderNavigation.cs`, which is the single dispatch point
   deciding PDF vs EPUB reader by `BookRecord.Format`.
-- **EPUB rendering is WebView + scroll-based pagination**
-  (`Views/ReaderEpubPage.xaml.cs`) — a real HTML/CSS engine renders the
-  chapter's own markup/CSS faithfully (text-align, classes, embedded fonts,
-  images all just work, unlike a hand-rolled parser). `Services/EpubExtractor.cs`
-  unzips the EPUB to app-local storage and exposes it to the WebView via a
-  fixed `ms-appdata:///local/...` URI (`BuildLocalContentUri`). Pagination:
-  `ApplyReaderStyleAsync` injects a `<style>` tag (font/theme/margin, no
-  fixed height, no columns — body flows to its natural height) and
-  `GoToPageAsync`/`GetTotalPagesAsync` (`ContentWebView.InvokeScriptAsync("eval",
-  ...)`) turn pages via `window.scrollTo(0, pageIndex * pageHeight)`, where
-  `pageHeight` (`PageHeightJs`) is always snapped down to a whole multiple of
-  the current computed `line-height` — guarantees a page boundary never
-  falls mid-line; the only imprecision it can leave is uneven blank space
-  near a paragraph's own margin, which has no text to cut.
-  **This project tried CSS multi-column pagination (`column-width`/
-  `column-count` + `transform: translateX`) three separate times and it
-  never worked on real Lumia hardware** — not a 1-2px sub-pixel sliver, a
-  wide, legible strip of the next column's text bleeding in (confirmed by a
-  device photo), surviving fixes for stylesheet conflicts, sub-pixel
-  rounding, and forced reflow. Do not reintroduce CSS columns for this
-  reader without a real device to verify on — this WebView's multi-column
-  support is apparently just not reliable. Scroll-based pagination sidesteps
-  the whole bug class because there are no columns to leak.
-  This project *also* tried a fully native `RichTextBlock`/
-  `RichTextBlockOverflow` chapter parser (no WebView at all,
-  `EpubContentParser.cs`, commit `214f923`) and reverted that too — it
-  required hand-rolling a CSS subset from scratch and broke outright on any
-  chapter XHTML that wasn't strictly well-formed XML (`XDocument.Parse`
+- **EPUB rendering is epub.js** (github.com/futurepress/epub.js),
+  vendorized under `Assets/EpubJs/` (`epub.legacy.min.js` — the ES5
+  "legacy" build, not `epub.min.js` — plus its `jszip.min.js` dependency;
+  see `Assets/EpubJs/README-VENDOR.md` for exact versions/how to update),
+  running inside a WebView. `Views/ReaderEpubPage.xaml.cs` navigates
+  `ContentWebView` once to the bundled bootstrap page
+  `ms-appx:///Assets/EpubJs/reader.html` (loads jszip + epub.js + our own
+  `reader-bridge.js`), then calls `SorvilReader.openBook(base64Epub,
+  startCfi, styleJson)` via `InvokeScriptAsync` — the whole `.epub` file is
+  read as bytes and base64-encoded in C# (`CryptographicBuffer.
+  EncodeToBase64String`) and passed as a plain string argument, *not* a
+  URL for epub.js to `fetch()` itself, because it isn't safe to assume
+  `fetch()` crosses from the `ms-appx://` origin (where `reader.html`
+  lives) to `ms-appdata://` (where downloaded books live) on this specific
+  WebView. `reader-bridge.js` decodes it back to an `ArrayBuffer`
+  (`atob` + `Uint8Array`) and hands it to `ePub(arrayBuffer)` — epub.js
+  does its own unzipping (via JSZip) and OPF/NCX/nav parsing internally;
+  none of that is done in C# anymore. Rendition uses `flow: "scrolled-doc"`
+  (plain vertical scroll, not CSS columns — see below for why) with
+  `rendition.next()`/`.prev()` for page turns; `rendition.themes.default(...)`
+  + `.fontSize(...)` for font/margin/line-height/theme (only 4 things are
+  controlled — see `BuildStyleJson`/`reader-bridge.js`'s `applyStyle` — the
+  book's own CSS/design is otherwise left alone, by explicit request).
+  Position is a CFI string stored directly in `BookRecord.ReadingPositionJson`
+  (no more `chapterIndex:pageIndex`). All JS→C# communication is one-way
+  events (`window.external.notify(JSON...)` → `WebView.ScriptNotify` →
+  `ContentWebView_ScriptNotify`, dispatching on a `type` field: `ready`
+  with the flattened TOC, `relocated` with cfi/href/percentage, `error`
+  with a message) — **every failure path in `reader-bridge.js`, including
+  `window.onerror`, reports an `error` message; nothing fails silently**,
+  which matters a lot given nobody can attach a debugger to the actual
+  device this runs on.
+  **Two earlier approaches were tried and abandoned before this** — don't
+  re-attempt either without a real device to verify on:
+  (1) Hand-rolled WebView + CSS multi-column pagination (`column-width`/
+  `column-count` + `transform: translateX`) — tried three separate times,
+  never worked on real Lumia hardware: not a 1-2px sub-pixel sliver, a
+  wide, legible strip of the next column's text bleeding in (confirmed by
+  a device photo), surviving fixes for stylesheet conflicts, sub-pixel
+  rounding, and forced reflow. This WebView's multi-column CSS support is
+  apparently just not reliable.
+  (2) A fully native `RichTextBlock`/`RichTextBlockOverflow` chapter
+  parser (no WebView at all, `EpubContentParser.cs`, commit `214f923`) —
+  required hand-rolling a CSS subset from scratch and broke outright on
+  any chapter XHTML that wasn't strictly well-formed XML (`XDocument.Parse`
   throws on real-world EPUB quirks like an unclosed `<meta>`), which a real
-  HTML parser tolerates fine. Two failed alternatives already explored —
-  see git history around `214f923` and its revert if reconsidering either.
+  HTML parser tolerates fine.
+  A hand-rolled scroll-based (non-column) pagination scheme was also tried
+  as an intermediate step between (1) and epub.js — it fixed the column
+  bleed but a JS string-concatenation bug (unescaped `'` in font-family
+  values breaking the generated script's syntax) silently no-opped *all*
+  style application for a while, which is exactly the class of bug that
+  motivated moving to a real library instead of continuing to hand-roll
+  this: **prefer named-function `InvokeScriptAsync` calls with JSON-encoded
+  arguments (`JsonObject.Stringify()`) over building JS source via string
+  concatenation** — it was fragile once and cost real debugging time
+  blind. See git history for `214f923` and the WebView-scroll-based commits
+  around it if reconsidering any of this.
   PDF rendering uses `Windows.Data.Pdf` natively (±1-page render window to
   limit RAM), no WebView — PDF is fixed-layout, so it has none of EPUB's
   reflow-pagination problems.

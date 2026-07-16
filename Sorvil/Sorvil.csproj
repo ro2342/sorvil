@@ -73,7 +73,6 @@
     <Compile Include="Services\CoverCacheService.cs" />
     <Compile Include="Services\LibraryDataStore.cs" />
     <Compile Include="Services\DownloadService.cs" />
-    <Compile Include="Services\EpubExtractor.cs" />
     <Compile Include="Services\UpdateCheckService.cs" />
     <Compile Include="Services\ReaderNavigation.cs" />
     <Compile Include="Services\ReaderPreferenceStore.cs" />
@@ -153,6 +152,16 @@
       generate_tile_assets.py a partir de logo.svg, ver README.md).
     -->
     <Content Include="Assets\*.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <!--
+      epub.js (build "legacy", vendorizado) + JSZip (dependência dele) +
+      o bootstrap HTML/JS da ponte C#<->JS — ver Views\ReaderEpubPage.xaml.cs.
+      Arquivos de terceiros não são reescritos, só referenciados como
+      Content (ver EpubJs\README-VENDOR.md pra origem/versão exata).
+    -->
+    <Content Include="Assets\EpubJs\*.js" />
+    <Content Include="Assets\EpubJs\*.html" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NETCore.UniversalWindowsPlatform" Version="6.2.14" />

@@ -1,8 +1,12 @@
 using Sorvil.Models;
 using Sorvil.Services;
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
+using Windows.Data.Json;
+using Windows.Security.Cryptography;
 using Windows.Storage;
+using Windows.Storage.Streams;
 using Windows.UI;
 using Windows.UI.Core;
 using Windows.UI.Text;
@@ -15,23 +19,34 @@ using Windows.UI.Xaml.Navigation;
 
 namespace Sorvil.Views
 {
-    // Leitor de EPUB/KEPUB com paginação real de e-reader (tipo Kindle/
-    // Freda), não uma página de web corrida. A técnica: rolagem vertical
-    // via script (window.scrollTo), um "tela inteira" de altura por vez —
-    // ver a seção "scripts de paginação" mais abaixo pro porquê disso (não
-    // CSS multi-column, que vazava uma segunda coluna de verdade em
-    // aparelho real).
+    // Leitor de EPUB/KEPUB — a renderização/paginação de verdade é feita
+    // pelo epub.js (github.com/futurepress/epub.js, vendorizado em
+    // Assets/EpubJs/, build "legacy" pra engines mais antigas) rodando
+    // dentro da WebView, não por script nosso escrito à mão. Depois de
+    // três rodadas de bugs de paginação (CSS multi-column vazando uma
+    // segunda coluna de verdade, depois rolagem manual pulando de
+    // capítulo errado) numa engine antiga e mal documentada, a decisão
+    // foi trocar pra uma biblioteca madura, testada em produção há anos,
+    // em vez de continuar reescrevendo a mesma lógica à mão.
     //
-    // A casca de leitura é uma máquina de estados só (ReaderChromeState),
-    // igual ao protótipo em sorvil-mockup.html: nenhum estado (imersivo),
-    // barra simples, um dos três painéis (fonte/tema/gestos) anexado
-    // logo abaixo da barra de cima, ou o índice (que substitui a barra de
-    // cima por um cabeçalho claro + lista de capítulos).
+    // Ponte C#<->JS: ContentWebView.Navigate leva pro bootstrap estático
+    // Assets/EpubJs/reader.html (carrega jszip.min.js + epub.legacy.min.js
+    // + reader-bridge.js). Depois que ele termina de carregar
+    // (ContentWebView_NavigationCompleted), chamamos
+    // SorvilReader.openBook(base64, cfi, styleJson) via InvokeScriptAsync
+    // passando o .epub inteiro em base64 como argumento — não como URL
+    // pro epub.js buscar sozinho, porque não dava pra confiar que fetch()
+    // atravessa o esquema ms-appx (onde mora reader.html) pro ms-appdata
+    // (onde mora o arquivo baixado) nessa WebView específica sem poder
+    // testar num aparelho de verdade. O JS devolve eventos (pronto,
+    // relocalizado, erro) via window.external.notify(JSON), que chegam
+    // aqui em ContentWebView_ScriptNotify — nunca fica em silêncio: todo
+    // erro (síncrono, de Promise, ou não tratado) vira uma mensagem
+    // visível, ver reader-bridge.js.
     //
-    // KEPUB é tratado como EPUB comum — os <span> extras da Kobo não
-    // atrapalham a paginação. O EPUB só é descompactado (custo real) na
-    // primeira abertura — EpubExtractor já cacheia isso em
-    // BooksExtracted/, então reabrir o mesmo livro é rápido.
+    // A casca de leitura (barra de cima/baixo, painéis de fonte/tema/
+    // gestos, índice) é a mesma máquina de estados de sempre
+    // (ReaderChromeState) — só o que preenche o miolo da tela mudou.
     public sealed partial class ReaderEpubPage : Page
     {
         private enum ReaderChromeState
@@ -42,6 +57,13 @@ namespace Sorvil.Views
             Theme,
             Gestures,
             Index,
+        }
+
+        private sealed class TocEntry
+        {
+            public string Label;
+            public string Href;
+            public int Depth;
         }
 
         // Fontes que já vêm instaladas no Windows 10 Mobile — não
@@ -60,23 +82,26 @@ namespace Sorvil.Views
         };
 
         private string _bookId;
-        private string _folderName;
-        private EpubManifest _manifest;
-        private int _chapterIndex;
-        private int _pageIndexInChapter;
-        private int _totalPagesInChapter = 1;
-        private int? _pendingStartPage;
         private BookRecord _record;
+        private List<TocEntry> _toc = new List<TocEntry>();
+        private string _pendingBase64;
+        private string _pendingStartCfi;
+        private string _currentCfi;
+        private string _currentHref;
+        private double _currentPercentage;
+        private bool _bookReady;
         private double _manipulationTranslationX;
         private double _manipulationScale = 1.0;
         private ReaderChromeState _state = ReaderChromeState.None;
         private bool _suppressSliderEvents;
+        private int _styleChangeToken;
 
         public ReaderEpubPage()
         {
             this.InitializeComponent();
             ContentWebView.NavigationCompleted += ContentWebView_NavigationCompleted;
             ContentWebView.NavigationFailed += ContentWebView_NavigationFailed;
+            ContentWebView.ScriptNotify += ContentWebView_ScriptNotify;
             SystemNavigationManager.GetForCurrentView().BackRequested += OnBackRequested;
 
             _suppressSliderEvents = true;
@@ -153,42 +178,17 @@ namespace Sorvil.Views
                     : _record.Title + " (" + _record.Author + ")";
                 ApplyDimLevel();
                 UpdateGestureMode();
+                UpdateWebViewBackgroundColor();
 
+                LoadingStatusText.Text = "Lendo arquivo...";
                 StorageFolder booksFolder = await ApplicationData.Current.LocalFolder.GetFolderAsync("Books");
                 StorageFile epubFile = await booksFolder.GetFileAsync(_record.LocalFilePath);
+                IBuffer buffer = await FileIO.ReadBufferAsync(epubFile);
+                _pendingBase64 = CryptographicBuffer.EncodeToBase64String(buffer);
+                _pendingStartCfi = _record.ReadingPositionJson;
 
-                LoadingStatusText.Text = "Extraindo...";
-                _manifest = await EpubExtractor.ExtractAndParseAsync(_bookId, epubFile);
-                _folderName = EpubExtractor.GetExtractedFolderName(_bookId);
-
-                if (_manifest.SpineFiles.Count == 0)
-                {
-                    ShowLoadError("Não consegui ler o índice deste EPUB.");
-                    return;
-                }
-
-                PopulateChapterDrawer();
-
-                int startChapter = 0;
-                int startPage = 0;
-                string[] parts = (_record.ReadingPositionJson ?? string.Empty).Split(':');
-                if (parts.Length >= 1)
-                {
-                    int.TryParse(parts[0], out startChapter);
-                }
-                if (parts.Length >= 2)
-                {
-                    int.TryParse(parts[1], out startPage);
-                }
-                if (startChapter < 0 || startChapter >= _manifest.SpineFiles.Count)
-                {
-                    startChapter = 0;
-                    startPage = 0;
-                }
-
-                // Não desliga o indicador aqui — ContentWebView_NavigationCompleted
-                // cuida disso quando o capítulo realmente terminar de renderizar.
-                await NavigateToChapterAsync(startChapter, startPage);
+                LoadingStatusText.Text = "Carregando leitor...";
+                ContentWebView.Navigate(new Uri("ms-appx:///Assets/EpubJs/reader.html"));
             }
             catch (Exception ex)
             {
@@ -202,26 +202,10 @@ namespace Sorvil.Views
             LoadingStatusText.Text = message;
         }
 
-        // startPage: null = primeira página, -1 = última página (entrando
-        // de trás pra frente, ex.: botão Anterior no início de um capítulo).
-        private async Task NavigateToChapterAsync(int chapterIndex, int? startPage)
-        {
-            _chapterIndex = chapterIndex;
-            _pendingStartPage = startPage;
-            LoadingRing.IsActive = true;
-            LoadingStatusText.Text = "Carregando capítulo...";
-            UpdateWebViewBackgroundColor();
-            Uri uri = EpubExtractor.BuildLocalContentUri(_folderName, _manifest.SpineFiles[chapterIndex]);
-            ContentWebView.Navigate(uri);
-        }
-
         // O WebView pinta com fundo branco por padrão antes de qualquer
-        // CSS carregar — como o tema escolhido só é aplicado DEPOIS que a
-        // navegação termina (ContentWebView_NavigationCompleted), isso
-        // aparecia como um flash branco antes de escurecer pro tema
-        // escuro a cada troca de capítulo. Setando DefaultBackgroundColor
-        // ANTES de navegar, o próprio WebView já nasce com a cor certa,
-        // sem esperar o CSS.
+        // CSS carregar — setando DefaultBackgroundColor ANTES de navegar,
+        // o próprio WebView já nasce com a cor certa, sem flash branco
+        // antes do tema escuro aparecer.
         private void UpdateWebViewBackgroundColor()
         {
             string theme = ReaderPreferenceStore.GetTheme();
@@ -241,78 +225,106 @@ namespace Sorvil.Views
             ContentWebView.DefaultBackgroundColor = color;
         }
 
+        // reader.html terminou de carregar (os dois scripts vendorizados +
+        // a ponte) — agora manda o livro em si pro epub.js abrir.
         private async void ContentWebView_NavigationCompleted(WebView sender, WebViewNavigationCompletedEventArgs args)
         {
-            await ApplyReaderStyleAsync();
-            _totalPagesInChapter = await GetTotalPagesAsync();
+            if (!args.IsSuccess || _pendingBase64 == null)
+            {
+                return;
+            }
 
-            int targetPage;
-            if (_pendingStartPage == null)
-            {
-                targetPage = 0;
-            }
-            else if (_pendingStartPage.Value < 0)
-            {
-                targetPage = _totalPagesInChapter - 1;
-            }
-            else
-            {
-                targetPage = Math.Min(_pendingStartPage.Value, _totalPagesInChapter - 1);
-            }
-            _pendingStartPage = null;
+            string base64 = _pendingBase64;
+            string startCfi = _pendingStartCfi;
+            _pendingBase64 = null;
+            _pendingStartCfi = null;
 
-            await GoToPageAsync(targetPage);
+            LoadingStatusText.Text = "Abrindo livro...";
+            string styleJson = BuildStyleJson();
+            await InvokeAsync("SorvilReader.openBook", new[] { base64, startCfi ?? string.Empty, styleJson });
+        }
+
+        private void ContentWebView_NavigationFailed(object sender, WebViewNavigationFailedEventArgs args)
+        {
+            ShowLoadError("Erro ao carregar o leitor.");
+        }
+
+        // Mensagens do lado JS (reader-bridge.js) — sempre um JSON com
+        // "type". Qualquer coisa que não reconhece é ignorada em vez de
+        // derrubar o leitor.
+        private async void ContentWebView_ScriptNotify(object sender, NotifyEventArgs e)
+        {
+            JsonObject msg;
+            try
+            {
+                msg = JsonObject.Parse(e.Value);
+            }
+            catch (Exception)
+            {
+                return;
+            }
+
+            string type = msg.GetNamedString("type", string.Empty);
+            switch (type)
+            {
+                case "ready":
+                    HandleReady(msg);
+                    break;
+                case "relocated":
+                    await HandleRelocatedAsync(msg);
+                    break;
+                case "error":
+                    ShowLoadError(msg.GetNamedString("message", "Erro desconhecido no leitor."));
+                    break;
+            }
+        }
+
+        private void HandleReady(JsonObject msg)
+        {
+            _toc.Clear();
+            JsonArray tocArray = msg.GetNamedArray("toc", new JsonArray());
+            foreach (IJsonValue item in tocArray)
+            {
+                JsonObject entryObj = item.GetObject();
+                _toc.Add(new TocEntry
+                {
+                    Label = entryObj.GetNamedString("label", string.Empty),
+                    Href = entryObj.GetNamedString("href", string.Empty),
+                    Depth = (int)entryObj.GetNamedNumber("depth", 0),
+                });
+            }
+            PopulateChapterDrawer();
+            _bookReady = true;
+        }
+
+        private async Task HandleRelocatedAsync(JsonObject msg)
+        {
+            _currentCfi = msg.GetNamedString("cfi", null);
+            _currentHref = msg.GetNamedString("href", null);
+            _currentPercentage = msg.GetNamedNumber("percentage", 0);
+
             UpdateIndicator();
+            if (_state == ReaderChromeState.Index)
+            {
+                HighlightCurrentChapterInDrawer();
+            }
             await SavePositionAsync();
 
             LoadingRing.IsActive = false;
             LoadingStatusText.Text = string.Empty;
         }
 
-        private void ContentWebView_NavigationFailed(object sender, WebViewNavigationFailedEventArgs args)
-        {
-            LoadingRing.IsActive = false;
-            LoadingStatusText.Text = "Erro ao carregar o capítulo.";
-        }
-
-        private async void ContentWebView_SizeChanged(object sender, SizeChangedEventArgs e)
-        {
-            // Rotação de tela ou primeira medição de layout — reaplica a
-            // paginação pro tamanho novo. Como isso é raro num telefone
-            // (orientação fixa na prática), não tenta preservar a posição
-            // exata: só reancora no início do capítulo atual.
-            if (_manifest == null || e.NewSize.Width <= 0 || e.NewSize.Height <= 0)
-            {
-                return;
-            }
-            await ApplyReaderStyleAsync();
-            _totalPagesInChapter = await GetTotalPagesAsync();
-            await GoToPageAsync(0);
-            UpdateIndicator();
-        }
-
-        // Progresso é uma aproximação por capítulo, não por bytes de
-        // verdade — capítulos variam muito de tamanho, então "~X%" é o
-        // mais honesto de mostrar sem pré-carregar e medir o livro inteiro
-        // (caro, e a paginação já muda sozinha se a fonte/tema mudar).
+        // Progresso vem pronto do epub.js (percentageFromCfi) quando dá
+        // pra calcular; o rótulo do capítulo é o item do índice cujo
+        // arquivo bate com a seção atual.
         private void UpdateIndicator()
         {
-            if (_manifest == null || _manifest.SpineFiles.Count == 0)
-            {
-                return;
-            }
+            ScrubberSlider.Value = _currentPercentage * 100.0;
 
-            double withinChapter = _totalPagesInChapter > 0
-                ? (double)(_pageIndexInChapter + 1) / _totalPagesInChapter
-                : 0;
-            double approxPercent = (_chapterIndex + withinChapter) / _manifest.SpineFiles.Count * 100.0;
-            ScrubberSlider.Value = approxPercent;
-
-            int currentTocIndex = FindCurrentTocIndex();
-            string chapterTitle = currentTocIndex >= 0 ? _manifest.Toc[currentTocIndex].Title : null;
-            TbCenterLabel.Text = chapterTitle != null
-                ? "Capítulo " + (_chapterIndex + 1) + " - " + chapterTitle
-                : "Capítulo " + (_chapterIndex + 1);
+            TocEntry current = FindCurrentTocEntry();
+            TbCenterLabel.Text = current != null && !string.IsNullOrEmpty(current.Label)
+                ? current.Label
+                : "Lendo";
         }
 
         // — índice (sumário) —
@@ -320,12 +332,11 @@ namespace Sorvil.Views
         private void PopulateChapterDrawer()
         {
             ChapterDrawerList.Items.Clear();
-            for (int i = 0; i < _manifest.Toc.Count; i++)
+            foreach (TocEntry entry in _toc)
             {
-                EpubTocEntry entry = _manifest.Toc[i];
                 TextBlock text = new TextBlock
                 {
-                    Text = entry.Title,
+                    Text = entry.Label,
                     TextWrapping = TextWrapping.Wrap,
                     Foreground = new SolidColorBrush(Colors.White),
                     Padding = new Thickness(2),
@@ -334,7 +345,7 @@ namespace Sorvil.Views
                 {
                     Content = text,
                     Tag = entry,
-                    Padding = new Thickness(18, 16, 18, 16),
+                    Padding = new Thickness(18 + entry.Depth * 16, 16, 18, 16),
                     Background = new SolidColorBrush(Colors.Transparent),
                 };
                 // Tapped direto no item, em vez de depender do ItemClick da
@@ -349,25 +360,25 @@ namespace Sorvil.Views
         private async void ChapterDrawerItem_Tapped(object sender, TappedRoutedEventArgs e)
         {
             ListViewItem container = sender as ListViewItem;
-            EpubTocEntry entry = container != null ? container.Tag as EpubTocEntry : null;
+            TocEntry entry = container != null ? container.Tag as TocEntry : null;
             _state = ReaderChromeState.None;
             ApplyReaderChromeState();
             if (entry != null)
             {
-                await NavigateToChapterAsync(entry.SpineIndex, null);
+                await InvokeAsync("SorvilReader.goToHref", new[] { entry.Href });
             }
         }
 
         private void HighlightCurrentChapterInDrawer()
         {
-            int currentTocIndex = FindCurrentTocIndex();
+            TocEntry current = FindCurrentTocEntry();
             SolidColorBrush activeBackground = new SolidColorBrush(Color.FromArgb(0xFF, 0x32, 0x60, 0x19));
             SolidColorBrush inactiveBackground = new SolidColorBrush(Colors.Transparent);
 
             for (int i = 0; i < ChapterDrawerList.Items.Count; i++)
             {
                 ListViewItem container = (ListViewItem)ChapterDrawerList.Items[i];
-                bool isCurrent = i == currentTocIndex;
+                bool isCurrent = ReferenceEquals(container.Tag, current);
                 container.Background = isCurrent ? activeBackground : inactiveBackground;
                 TextBlock text = (TextBlock)container.Content;
                 text.FontWeight = isCurrent ? FontWeights.Bold : FontWeights.Normal;
@@ -378,25 +389,50 @@ namespace Sorvil.Views
             }
         }
 
-        // "Capítulo atual" é a entrada do índice com o maior SpineIndex que
-        // ainda não passou do capítulo aberto — o NCX não tem uma entrada
-        // pra cada arquivo do spine (um capítulo de verdade às vezes vira
-        // vários arquivos internos), então é o "mais próximo por baixo"
-        // que representa onde a leitura está.
-        private int FindCurrentTocIndex()
+        // "Capítulo atual" é a última entrada do índice cujo arquivo
+        // (ignorando #fragmento) bate com o href da seção que o epub.js
+        // reportou no último "relocated" — comparação tolerante
+        // (EndsWith nos dois sentidos) porque o caminho que o epub.js
+        // resolve internamente às vezes não é byte-a-byte igual ao href
+        // declarado no nav.xhtml/NCX (prefixo de diretório pode diferir).
+        private TocEntry FindCurrentTocEntry()
         {
-            int best = -1;
-            int bestSpineIndex = -1;
-            for (int i = 0; i < _manifest.Toc.Count; i++)
+            if (string.IsNullOrEmpty(_currentHref))
             {
-                int spineIndex = _manifest.Toc[i].SpineIndex;
-                if (spineIndex <= _chapterIndex && spineIndex > bestSpineIndex)
+                return null;
+            }
+            TocEntry best = null;
+            foreach (TocEntry entry in _toc)
+            {
+                if (HrefMatches(entry.Href, _currentHref))
                 {
-                    bestSpineIndex = spineIndex;
-                    best = i;
+                    best = entry;
                 }
             }
             return best;
+        }
+
+        private static bool HrefMatches(string a, string b)
+        {
+            string fa = HrefFile(a);
+            string fb = HrefFile(b);
+            if (string.IsNullOrEmpty(fa) || string.IsNullOrEmpty(fb))
+            {
+                return false;
+            }
+            return fa == fb ||
+                fa.EndsWith(fb, StringComparison.OrdinalIgnoreCase) ||
+                fb.EndsWith(fa, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string HrefFile(string href)
+        {
+            if (string.IsNullOrEmpty(href))
+            {
+                return string.Empty;
+            }
+            int hashIndex = href.IndexOf('#');
+            return hashIndex >= 0 ? href.Substring(0, hashIndex) : href;
         }
 
         private void OpenIndex_Click(object sender, RoutedEventArgs e)
@@ -422,54 +458,35 @@ namespace Sorvil.Views
 
         private async Task SavePositionAsync()
         {
+            if (string.IsNullOrEmpty(_currentCfi))
+            {
+                return;
+            }
             BookRecord record = await LibraryDataStore.GetAsync(_bookId);
             if (record == null)
             {
                 return;
             }
-            record.ReadingPositionJson = _chapterIndex + ":" + _pageIndexInChapter;
+            record.ReadingPositionJson = _currentCfi;
             record.LastOpenedAt = DateTimeOffset.UtcNow.ToString("o");
             await LibraryDataStore.SaveAsync(record);
         }
 
         // — navegação de página (usada pelos botões e pelas zonas de toque) —
         //
-        // Não decide "virar página vs. virar capítulo" comparando
-        // _pageIndexInChapter contra um _totalPagesInChapter pré-calculado
-        // — esse total é só uma estimativa (usada pro indicador de
-        // progresso) e, se sair errada, a comparação nasce falsa e todo
-        // toque de "próxima" pula direto pro capítulo seguinte, mesmo com
-        // o capítulo atual cheio de texto ainda não lido. Em vez disso,
-        // TryStepPageAsync pergunta pra própria WebView, na hora, se ainda
-        // dá pra rolar mais uma tela — só troca de capítulo quando a
-        // rolagem de verdade já bateu no fim (ou início).
+        // rendition.next()/prev() do epub.js já cuidam de tudo sozinhos
+        // (virar página dentro da seção atual, ou passar pra próxima/
+        // anterior seção quando a atual acaba) — não existe mais nenhuma
+        // lógica nossa de "isso é página ou é capítulo" pra dar errado.
 
         private async Task GoToNextAsync()
         {
-            bool advanced = await TryStepPageAsync(1);
-            if (advanced)
-            {
-                UpdateIndicator();
-                await SavePositionAsync();
-            }
-            else if (_manifest != null && _chapterIndex < _manifest.SpineFiles.Count - 1)
-            {
-                await NavigateToChapterAsync(_chapterIndex + 1, null);
-            }
+            await InvokeAsync("SorvilReader.next", new string[0]);
         }
 
         private async Task GoToPreviousAsync()
         {
-            bool advanced = await TryStepPageAsync(-1);
-            if (advanced)
-            {
-                UpdateIndicator();
-                await SavePositionAsync();
-            }
-            else if (_manifest != null && _chapterIndex > 0)
-            {
-                await NavigateToChapterAsync(_chapterIndex - 1, -1);
-            }
+            await InvokeAsync("SorvilReader.prev", new string[0]);
         }
 
         // Os botões de "retroceder/avançar" do scrubber dão um pequeno
@@ -562,7 +579,7 @@ namespace Sorvil.Views
                 if (delta != 0)
                 {
                     SetFontSizePercent(ReaderPreferenceStore.GetFontSizePercent() + delta);
-                    await ReapplyStyleAndRepaginateAsync();
+                    await ApplyStyleAsync();
                 }
             }
             else if (!isPinch && ReaderPreferenceStore.GetSwipeEnabled() && Math.Abs(_manipulationTranslationX) > SwipeThresholdPixels)
@@ -663,7 +680,7 @@ namespace Sorvil.Views
             BrightnessIcon.Foreground = _state == ReaderChromeState.Theme ? activeIconBrush : inactiveIconBrush;
             GestureIcon.Foreground = _state == ReaderChromeState.Gestures ? activeIconBrush : inactiveIconBrush;
 
-            if (isIndex && _manifest != null)
+            if (isIndex && _bookReady)
             {
                 HighlightCurrentChapterInDrawer();
             }
@@ -709,7 +726,7 @@ namespace Sorvil.Views
                 }
                 ReaderPreferenceStore.SetFontFamily(FontFamilyValues[index]);
                 UpdateFontFamilyLabel();
-                await ReapplyStyleAndRepaginateAsync();
+                await ApplyStyleAsync();
             };
             Flyout flyout = new Flyout { Content = list };
             flyout.ShowAt(FontFamilyButton);
@@ -731,7 +748,7 @@ namespace Sorvil.Views
                 return;
             }
             ReaderPreferenceStore.SetFontSizePercent((int)e.NewValue);
-            await DebouncedReapplyStyleAsync();
+            await DebouncedApplyStyleAsync();
         }
 
         private async void LineSpacingSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
@@ -741,7 +758,7 @@ namespace Sorvil.Views
                 return;
             }
             ReaderPreferenceStore.SetLineSpacing(Math.Round(e.NewValue, 1));
-            await DebouncedReapplyStyleAsync();
+            await DebouncedApplyStyleAsync();
         }
 
         private async void MarginSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
@@ -751,23 +768,19 @@ namespace Sorvil.Views
                 return;
             }
             ReaderPreferenceStore.SetMarginPx((int)e.NewValue);
-            await DebouncedReapplyStyleAsync();
+            await DebouncedApplyStyleAsync();
         }
 
         // Arrastar um Slider dispara ValueChanged uma vez por pixel — sem
-        // isso, cada tique da arrastada dispara sua própria sequência de 3
-        // idas-e-voltas assíncronas até a WebView (ApplyReaderStyleAsync +
-        // GetTotalPagesAsync + GoToPageAsync), e várias ficam concorrentes
-        // ao mesmo tempo; a que terminar por último "vence" mesmo que não
-        // seja a mais recente, então o resultado final às vezes nem
-        // reflete o valor onde o slider realmente parou. Só a chamada mais
-        // recente (depois de a arrastada ficar quieta por 250ms) de fato
-        // reaplica o estilo — as intermediárias são descartadas. O gesto
-        // de pinça não precisa disso porque só dispara uma vez, no fim do
-        // gesto (ManipulationCompleted), não a cada frame.
-        private int _styleChangeToken;
-
-        private async Task DebouncedReapplyStyleAsync()
+        // isso, cada tique da arrastada dispararia sua própria chamada
+        // pra WebView, e várias ficariam concorrentes ao mesmo tempo; a
+        // que terminar por último "vence" mesmo que não seja a mais
+        // recente. Só a chamada mais recente (depois de a arrastada
+        // ficar quieta por 250ms) de fato reaplica o estilo — as
+        // intermediárias são descartadas. O gesto de pinça não precisa
+        // disso porque só dispara uma vez, no fim do gesto
+        // (ManipulationCompleted), não a cada frame.
+        private async Task DebouncedApplyStyleAsync()
         {
             int myToken = ++_styleChangeToken;
             await Task.Delay(250);
@@ -775,14 +788,14 @@ namespace Sorvil.Views
             {
                 return;
             }
-            await ReapplyStyleAndRepaginateAsync();
+            await ApplyStyleAsync();
         }
 
         private async void ApplyJustification(string value)
         {
             ReaderPreferenceStore.SetJustification(value);
             RefreshSegRow(JustificationRow, value);
-            await ReapplyStyleAndRepaginateAsync();
+            await ApplyStyleAsync();
         }
 
         // — painel de tema/brilho —
@@ -812,7 +825,7 @@ namespace Sorvil.Views
             ReaderPreferenceStore.SetTheme(value);
             RefreshSegRow(ThemeRow, value);
             UpdateWebViewBackgroundColor();
-            await ReapplyStyleAndRepaginateAsync();
+            await ApplyStyleAsync();
         }
 
         private void ApplyDimLevel()
@@ -894,34 +907,13 @@ namespace Sorvil.Views
             }
         }
 
-        // — scripts de paginação —
-        //
-        // Paginação via CSS multi-column (column-width/column-count +
-        // translateX) foi tentada três vezes e nas três sobrou uma "segunda
-        // coluna" visível de verdade num aparelho real — não vazamento de
-        // sub-pixel, uma faixa larga e legível de texto da coluna seguinte
-        // (ver foto no histórico de commits/conversa). O suporte a CSS
-        // multi-column nunca foi consistente entre motores de navegador, e
-        // a WebView do Windows 10 Mobile claramente não faz esse cálculo do
-        // jeito esperado. Em vez de insistir em coluna, a virada de página
-        // agora é rolagem vertical de verdade (window.scrollTo) por exatos
-        // "N linhas" por tela — rolagem é um caminho de código muito mais
-        // simples e maduro em qualquer motor do que layout multi-coluna, e
-        // não existe "segunda coluna" possível se não existem colunas.
-        //
-        // O "tamanho da página" em px é sempre um múltiplo exato da altura
-        // de linha atual (lida de volta via getComputedStyle depois que o
-        // <style> injetado já aplicou fonte/espaçamento) — garante que o
-        // corte de página nunca cai no meio de uma linha de texto; o único
-        // lugar onde a rolagem pode ficar "não perfeitamente alinhada" é
-        // dentro da margem entre parágrafos, que não tem texto nenhum
-        // pra cortar ao meio.
+        // — ponte com o epub.js —
 
-        private async Task<string> InvokeAsync(string script)
+        private async Task<string> InvokeAsync(string functionName, string[] args)
         {
             try
             {
-                return await ContentWebView.InvokeScriptAsync("eval", new[] { script });
+                return await ContentWebView.InvokeScriptAsync(functionName, args);
             }
             catch (Exception)
             {
@@ -929,132 +921,25 @@ namespace Sorvil.Views
             }
         }
 
-        // window.innerHeight em vez de document.documentElement.clientHeight
-        // — mais confiável entre modos de renderização (quirks vs.
-        // standards) do que ler direto do elemento raiz, que é justo onde
-        // um HTML de EPUB real (às vezes sem doctype "limpo") pode fazer a
-        // WebView escolher um modo diferente do esperado.
-        private const string ViewportHeightJs = "window.innerHeight";
-
-        // window.pageYOffset com fallback pra scrollTop de documentElement
-        // e de body — cobre tanto modo standards (html é quem rola) quanto
-        // quirks (body é quem rola), sem precisar saber qual é qual.
-        private const string ScrollTopJs = "(window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0)";
-
-        // Maior entre três medidas diferentes de "altura de verdade do
-        // conteúdo": scrollHeight de body, de documentElement, e a altura
-        // de layout de body (getBoundingClientRect, que é geometria pura —
-        // não depende de qual elemento essa WebView específica considera
-        // "o scroller", só do quanto o conteúdo realmente ocupa). Sem essa
-        // terceira medida, um scrollHeight que saísse igual à altura da
-        // tela (em vez da altura real do capítulo inteiro) fazia
-        // TryStepPageAsync achar que já estava no fim de todo capítulo, e
-        // virar de página sempre pulava direto pro capítulo seguinte.
-        private const string ContentHeightJs = "Math.max(document.body.scrollHeight, document.documentElement.scrollHeight, document.body.getBoundingClientRect().height)";
-
-        // Mesma expressão usada em GetTotalPagesAsync, GoToPageAsync e
-        // TryStepPageAsync — texto idêntico de propósito, pra nunca haver
-        // dois cálculos de "altura de página" ligeiramente diferentes
-        // brigando entre si.
-        private static string PageHeightJs(int margin)
+        private async Task ApplyStyleAsync()
         {
-            return "(function() {" +
-                "var lh = parseFloat(getComputedStyle(document.body).lineHeight) || 24;" +
-                "var raw = " + ViewportHeightJs + " - (" + margin + " * 2);" +
-                "var lines = Math.max(1, Math.floor(raw / lh));" +
-                "return lines * lh;" +
-                "})()";
-        }
-
-        // Só usado pro indicador de progresso (aproximado) — a decisão de
-        // "ainda cabe mais uma página aqui ou já é hora de trocar de
-        // capítulo" nunca depende deste número, ver TryStepPageAsync.
-        private async Task<int> GetTotalPagesAsync()
-        {
-            int margin = ReaderPreferenceStore.GetMarginPx();
-            string script =
-                "(function() {" +
-                "var pageHeight = " + PageHeightJs(margin) + ";" +
-                "var totalHeight = " + ContentHeightJs + ";" +
-                "return Math.max(1, Math.ceil(totalHeight / pageHeight));" +
-                "})();";
-            string result = await InvokeAsync(script);
-            int pages;
-            return int.TryParse(result, out pages) && pages > 0 ? pages : 1;
-        }
-
-        // Salto absoluto (abrir capítulo na primeira página, ou na última
-        // — startPage < 0 — ao entrar vindo de trás). Sempre pinça o alvo
-        // dentro de [0, maxScroll] medido na hora, então mesmo se
-        // pageIndex vier de uma estimativa errada (ex.: _totalPagesInChapter
-        // aproximado), a posição final ainda cai certinha no fim de
-        // verdade do capítulo.
-        private async Task GoToPageAsync(int pageIndex)
-        {
-            int margin = ReaderPreferenceStore.GetMarginPx();
-            string script =
-                "(function() {" +
-                "var pageHeight = " + PageHeightJs(margin) + ";" +
-                "var maxScroll = Math.max(0, " + ContentHeightJs + " - " + ViewportHeightJs + ");" +
-                "var target = Math.min(maxScroll, Math.max(0, Math.round(" + pageIndex + " * pageHeight)));" +
-                "window.scrollTo(0, target);" +
-                "return Math.round(target / pageHeight);" +
-                "})();";
-            string result = await InvokeAsync(script);
-            int actualIndex;
-            _pageIndexInChapter = int.TryParse(result, out actualIndex) ? actualIndex : Math.Max(0, pageIndex);
-        }
-
-        // Passo relativo (usado pelos botões/zonas de toque de próxima e
-        // anterior): mede rolagem atual e o quanto ainda dá pra rolar no
-        // MESMO script, então nunca fica dessincronizado de nenhum total
-        // pré-calculado. Retorna false (sem mexer em nada) quando já está
-        // na borda — aí quem chamou decide trocar de capítulo.
-        private async Task<bool> TryStepPageAsync(int direction)
-        {
-            int margin = ReaderPreferenceStore.GetMarginPx();
-            string script =
-                "(function() {" +
-                "var pageHeight = " + PageHeightJs(margin) + ";" +
-                "var maxScroll = Math.max(0, " + ContentHeightJs + " - " + ViewportHeightJs + ");" +
-                "var current = " + ScrollTopJs + ";" +
-                "var target = Math.min(maxScroll, Math.max(0, current + (" + direction + " * pageHeight)));" +
-                "if (Math.abs(target - current) < 2) { return -1; }" +
-                "window.scrollTo(0, target);" +
-                "return Math.round(target / pageHeight);" +
-                "})();";
-            string result = await InvokeAsync(script);
-            int newIndex;
-            if (!int.TryParse(result, out newIndex) || newIndex < 0)
+            if (!_bookReady)
             {
-                return false;
+                return;
             }
-            _pageIndexInChapter = newIndex;
-            return true;
+            string styleJson = BuildStyleJson();
+            await InvokeAsync("SorvilReader.setStyle", new[] { styleJson });
         }
 
-        // Mudar fonte/tema/espaçamento/margem muda quantas páginas cabem
-        // no capítulo — por isso repagina do zero (volta pra página 0) em
-        // vez de só reaplicar o CSS mantendo o índice de página antigo,
-        // que ficaria errado.
-        private async Task ReapplyStyleAndRepaginateAsync()
+        // JsonObject.Stringify() cuida de toda a escapagem — depois de
+        // levar um bug feio de montar CSS/JS na mão com concatenação de
+        // string (aspas de font-family quebrando a sintaxe inteira), tudo
+        // que cruza a ponte pro JS passa a ir por aqui ou por argumentos
+        // separados do InvokeScriptAsync, nunca mais por string concatenada
+        // virando código.
+        private string BuildStyleJson()
         {
-            await ApplyReaderStyleAsync();
-            _totalPagesInChapter = await GetTotalPagesAsync();
-            await GoToPageAsync(0);
-            UpdateIndicator();
-            await SavePositionAsync();
-        }
-
-        private async Task ApplyReaderStyleAsync()
-        {
-            int fontSize = ReaderPreferenceStore.GetFontSizePercent();
             string theme = ReaderPreferenceStore.GetTheme();
-            double lineSpacing = ReaderPreferenceStore.GetLineSpacing();
-            int margin = ReaderPreferenceStore.GetMarginPx();
-            string justification = ReaderPreferenceStore.GetJustification();
-            string fontFamily = ReaderPreferenceStore.GetFontFamily();
-
             string background;
             string foreground;
             switch (theme)
@@ -1073,77 +958,15 @@ namespace Sorvil.Views
                     break;
             }
 
-            // Deixa o CSS do próprio livro em pé — o design original
-            // (recuo/indentação, letra capitular, título centralizado,
-            // cores de destaque, etc.) é exatamente o que o autor/editora
-            // pensou pro livro, e o pedido explícito foi não recriar isso
-            // do zero. Só quatro coisas são realmente controladas por
-            // aqui, tudo o mais fica por conta do livro:
-            //
-            // 1. Tamanho da fonte: escala html { font-size: X% } (a base
-            //    "em"/"rem" de tudo). Cobre a maioria dos EPUBs (que usam
-            //    unidade relativa, o padrão do formato), mas alguns
-            //    fixam px direto nas tags de texto — pra esses também
-            //    responderem, p/div/li/blockquote (não h1-h6, que ficam
-            //    livres pra manter a hierarquia visual do livro) recebem
-            //    font-size:1em !important, forçando herdar do ancestral
-            //    (em cascata, até chegar em body/html, que é quem a gente
-            //    controla) em vez do valor fixo do livro.
-            // 2. Margem: padding em body.
-            // 3. Espaçamento de linha: line-height em body (herda pra
-            //    tudo que não define o próprio).
-            // 4. Cor de fundo/tema: background-color forçado; a cor de
-            //    texto (foreground) só é aplicada em body SEM !important
-            //    — então continua sendo a cor-base herdada por tudo que o
-            //    livro não colore explicitamente, mas qualquer coisa que
-            //    o próprio livro pinta de propósito (uma citação, um
-            //    destaque) continua com a cor que o livro escolheu, não a
-            //    nossa.
-            //
-            // Fonte (font-family) só entra na jogada se o usuário
-            // escolheu uma manualmente no painel — "Padrão" é string
-            // vazia, então o CSS do livro decide sozinho.
-            //
-            // max-width:100% em html/img é só uma rede de segurança contra
-            // um layout do próprio livro que force algo mais largo que a
-            // tela (evita corte horizontal), não uma reescrita do design.
-            // Sem overflow:hidden em html de propósito — essa WebView
-            // específica parecia medir scrollHeight errado (só a altura
-            // da viewport, não a do capítulo inteiro) com overflow:hidden
-            // no elemento raiz, o que fazia TryStepPageAsync sempre achar
-            // que não tinha mais nada pra rolar e pular direto pro
-            // próximo capítulo mesmo no meio de um capítulo longo.
-            string fontFamilyCss = string.IsNullOrEmpty(fontFamily)
-                ? string.Empty
-                : "font-family: " + fontFamily + " !important; ";
-            // CSS de texto entre ASPAS DUPLAS aqui de propósito — valores
-            // de font-family (ex.: "'Segoe UI', sans-serif") têm aspas
-            // SIMPLES dentro, que fechariam uma string JS delimitada por
-            // aspas simples no meio da frase e quebrariam a sintaxe do
-            // script inteiro (o eval() nem chega a rodar — style.innerHTML
-            // nunca é setado, sobra só o HTML cru do capítulo sem nenhum
-            // dos nossos ajustes). Aspas duplas não colidem com aspas
-            // simples de CSS.
-            string script =
-                "(function() {" +
-                "var style = document.getElementById('sorvil-reader-style');" +
-                "if (!style) { style = document.createElement('style'); style.id = 'sorvil-reader-style'; document.head.appendChild(style); }" +
-                "style.innerHTML = " +
-                "\"html { max-width: 100% !important; background-color: " + background + " !important; font-size: " + fontSize + "% !important; } \" +" +
-                "\"body { margin: 0 !important; max-width: 100% !important; box-sizing: border-box !important; " +
-                "padding: " + margin + "px " + margin + "px !important; " +
-                "background-color: " + background + " !important; " +
-                "color: " + foreground + "; " +
-                "line-height: " + lineSpacing.ToString(System.Globalization.CultureInfo.InvariantCulture) + " !important; " +
-                "text-align: " + justification + " !important; " +
-                fontFamilyCss +
-                "} \" +" +
-                "\"p, div, li, blockquote { font-size: 1em !important; } \" +" +
-                "\"img { max-width: 100% !important; height: auto !important; }\";" +
-                "void document.body.offsetHeight;" +
-                "})();";
-
-            await InvokeAsync(script);
+            JsonObject obj = new JsonObject();
+            obj["fontSize"] = JsonValue.CreateNumberValue(ReaderPreferenceStore.GetFontSizePercent());
+            obj["margin"] = JsonValue.CreateNumberValue(ReaderPreferenceStore.GetMarginPx());
+            obj["lineHeight"] = JsonValue.CreateNumberValue(ReaderPreferenceStore.GetLineSpacing());
+            obj["justification"] = JsonValue.CreateStringValue(ReaderPreferenceStore.GetJustification());
+            obj["fontFamily"] = JsonValue.CreateStringValue(ReaderPreferenceStore.GetFontFamily());
+            obj["background"] = JsonValue.CreateStringValue(background);
+            obj["foreground"] = JsonValue.CreateStringValue(foreground);
+            return obj.Stringify();
         }
     }
 }

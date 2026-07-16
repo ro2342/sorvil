@@ -46,7 +46,7 @@
     </Page.Resources>
 
     <Grid x:Name="RootGrid" SizeChanged="RootGrid_SizeChanged">
-        <WebView x:Name="ContentWebView" SizeChanged="ContentWebView_SizeChanged" />
+        <WebView x:Name="ContentWebView" />
 
         <!-- "Brilho": um overlay preto semitransparente por cima de tudo,
              com a Opacity controlada por um slider — não mexe em brilho de
