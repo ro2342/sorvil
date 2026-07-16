@@ -49,6 +49,28 @@
     }
   }
 
+  // Diagnóstico de última instância: escreve texto GRANDE direto no
+  // <div id="viewer"> (a própria WebView, já visível na tela, por trás
+  // do spinner pequeno e centralizado de carregamento) — sem passar por
+  // notify()/ScriptNotify nem pelo polling de getState(), que já se
+  // provaram não confiáveis pra reportar progresso nessa engine. Isso é
+  // só manipulação de DOM local, não depende de nenhum canal de
+  // comunicação que possa estar quebrado — se aparecer na tela, aquele
+  // passo rodou; se a tela parar nalgum checkpoint, é ali que trava.
+  function checkpoint(text) {
+    try {
+      var el = document.getElementById("viewer");
+      if (el) {
+        el.innerHTML =
+          '<div style="position:fixed;top:0;left:0;right:0;padding:16px;' +
+          'font-size:22px;font-family:sans-serif;color:#000;background:#fff;' +
+          'z-index:99999;">' + text + "</div>";
+      }
+    } catch (e) {
+      // Se nem isso funcionar, não tem mais nada barato a tentar.
+    }
+  }
+
   window.onerror = function (message, source, lineno, colno, error) {
     notify({
       type: "error",
@@ -165,45 +187,57 @@
   }
 
   function openBookFromBase64(base64Data, startCfi, styleJson) {
+    checkpoint("1/8 openBookFromBase64 iniciou (" + base64Data.length + " chars base64)");
+
     var style;
     try {
       style = JSON.parse(styleJson);
     } catch (err) {
+      checkpoint("ERRO no passo 1 (JSON.parse estilo): " + String(err && err.message ? err.message : err));
       notify({ type: "error", message: "Falha ao ler estilo: " + String(err && err.message ? err.message : err) });
       return;
     }
+    checkpoint("2/8 estilo interpretado");
 
     var arrayBuffer;
     try {
       arrayBuffer = base64ToArrayBufferSlow(base64Data);
     } catch (err) {
+      checkpoint("ERRO no passo 2 (decode base64): " + String(err && err.message ? err.message : err));
       notify({ type: "error", message: "Falha ao decodificar o livro: " + String(err && err.message ? err.message : err) });
       return;
     }
+    checkpoint("3/8 decodificado (" + arrayBuffer.byteLength + " bytes)");
     notify({ type: "progress", stage: "decodificado" });
 
     try {
       book = ePub(arrayBuffer);
+      checkpoint("4/8 ePub() construído");
       rendition = book.renderTo("viewer", {
         width: "100%",
         height: "100%",
         flow: "scrolled-doc",
         spread: "none",
       });
+      checkpoint("5/8 renderTo() chamado");
 
       applyStyle(style);
       wireRendition();
+      checkpoint("6/8 estilo aplicado, eventos ligados — esperando book.ready");
     } catch (err) {
+      checkpoint("ERRO no passo 4-6 (ePub/renderTo): " + String(err && err.message ? err.message : err));
       notify({ type: "error", message: "Falha ao inicializar o epub.js: " + String(err && err.message ? err.message : err) });
       return;
     }
 
     book.ready
       .then(function () {
+        checkpoint("7/8 book.ready resolvido — buscando navegação/TOC");
         notify({ type: "progress", stage: "processado" });
         return book.loaded.navigation;
       })
       .then(function (nav) {
+        checkpoint("8/8 TOC pronto — exibindo página");
         notify({ type: "ready", toc: flattenToc(nav.toc) });
         // Catch aninhado de propósito, só em volta do display() — se o
         // CFI salvo for inválido/de um esquema antigo, abre do início
@@ -217,6 +251,7 @@
         });
       })
       .catch(function (err) {
+        checkpoint("ERRO no passo 7-8 (book.ready/navigation/display): " + (err && err.message ? err.message : String(err)));
         notify({
           type: "error",
           message: "Falha ao abrir o livro: " + (err && err.message ? err.message : String(err)),
@@ -246,6 +281,7 @@
     },
 
     finishBook: function (startCfi, styleJson) {
+      checkpoint("0/8 finishBook chamado (" + _bookChunks.length + " pedaços)");
       var base64Data = _bookChunks.join("");
       _bookChunks = [];
       notify({ type: "progress", stage: "recebido" });
