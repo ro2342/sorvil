@@ -91,6 +91,12 @@ namespace Sorvil.Views
         private string _currentHref;
         private double _currentPercentage;
         private bool _bookReady;
+        private int _pendingChunkCount;
+
+        // Tamanho de cada pedaço (em caracteres base64) mandado por
+        // chamada InvokeScriptAsync — ver comentário em
+        // ContentWebView_NavigationCompleted.
+        private const int ChunkSize = 200000;
         private double _manipulationTranslationX;
         private double _manipulationScale = 1.0;
         private ReaderChromeState _state = ReaderChromeState.None;
@@ -327,10 +333,28 @@ namespace Sorvil.Views
                 step = "codificando em base64 (" + epubBytes.Length + " bytes)";
                 string base64 = Convert.ToBase64String(epubBytes);
 
+                // Manda em pedaços pequenos (beginBook -> appendBookChunk*
+                // -> finishBook) em vez de um InvokeScriptAsync só com um
+                // argumento de vários MB — uma chamada gigante travava
+                // antes mesmo do primeiro evento de progresso sair do
+                // lado JS, apontando pro marshaling C#->JS da string
+                // enorme como o gargalo de verdade. Em pedaços, cada
+                // chamada é pequena e rápida, e o usuário vê progresso de
+                // verdade em vez de uma tela parada.
+                step = "enviando o livro pro leitor";
+                int chunkCount = (base64.Length + ChunkSize - 1) / ChunkSize;
+                _pendingChunkCount = chunkCount;
+                await InvokeAsync("SorvilReader.beginBook", new[] { chunkCount.ToString() });
+                for (int offset = 0; offset < base64.Length; offset += ChunkSize)
+                {
+                    int length = Math.Min(ChunkSize, base64.Length - offset);
+                    string chunk = base64.Substring(offset, length);
+                    await InvokeAsync("SorvilReader.appendBookChunk", new[] { chunk });
+                }
+
                 step = "abrindo o livro no epub.js";
-                LoadingStatusText.Text = "Abrindo livro...";
                 string styleJson = BuildStyleJson();
-                await InvokeAsync("SorvilReader.openBook", new[] { base64, _record.ReadingPositionJson ?? string.Empty, styleJson });
+                await InvokeAsync("SorvilReader.finishBook", new[] { _record.ReadingPositionJson ?? string.Empty, styleJson });
             }
             catch (Exception ex)
             {
@@ -386,6 +410,10 @@ namespace Sorvil.Views
             string stage = msg.GetNamedString("stage", string.Empty);
             switch (stage)
             {
+                case "recebendo":
+                    int done = (int)msg.GetNamedNumber("done", 0);
+                    LoadingStatusText.Text = "Enviando... " + done + "/" + _pendingChunkCount;
+                    break;
                 case "recebido":
                     LoadingStatusText.Text = "Decodificando...";
                     break;
