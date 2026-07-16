@@ -88,16 +88,45 @@ fail referencing a type that "doesn't exist").
   reader needs to own the whole screen above the shell's header/SplitView —
   see `Services/ReaderNavigation.cs`, which is the single dispatch point
   deciding PDF vs EPUB reader by `BookRecord.Format`.
-- **EPUB rendering is fully native — no WebView.** `Services/EpubExtractor.cs`
-  unzips the EPUB to app-local storage; `Services/EpubContentParser.cs` reads
-  a chapter's XHTML and builds native `Paragraph` objects (no CSS, no
-  third-party rendering engine) applied via `ReaderTextStyle`, so formatting
-  is consistent across whichever `RichTextBlock`/`RichTextBlockOverflow`
-  container native pagination spreads them into. Common semantic tags
-  (headings, emphasis, images, line breaks) are supported; anything exotic
-  degrades to plain inner text rather than breaking the chapter. PDF rendering
-  uses `Windows.Data.Pdf` natively (±1-page render window to limit RAM), also
-  no WebView.
+- **EPUB rendering is WebView + CSS columns** (`Views/ReaderEpubPage.xaml.cs`)
+  — a real HTML/CSS engine renders the chapter's own markup/CSS faithfully
+  (text-align, classes, embedded fonts, images all just work, unlike a
+  hand-rolled parser), at the cost of needing careful JS-injected pagination.
+  `Services/EpubExtractor.cs` unzips the EPUB to app-local storage and exposes
+  it to the WebView via a fixed `ms-appdata:///local/...` URI
+  (`BuildLocalContentUri`). Pagination technique: `ApplyReaderStyleAsync`
+  injects a `<style>` tag turning the chapter `<body>` into CSS columns
+  (`column-width` = viewport width, `column-count: 1`, fixed `height`), and
+  `GoToPageAsync`/`GetTotalPagesAsync` measure/navigate via
+  `ContentWebView.InvokeScriptAsync("eval", ...)` — `GoToPageAsync` applies
+  `transform: translate3d(-N * stepWidth, 0, 0)` to "turn pages" instantly,
+  no native scrolling involved. This project tried the alternative (a fully
+  native `RichTextBlock`/`RichTextBlockOverflow` chapter parser, no WebView
+  at all) and reverted it — the native parser required hand-rolling a CSS
+  subset and still broke on any XHTML that wasn't strictly well-formed XML
+  (`XDocument.Parse` throws on real-world EPUB quirks like an unclosed
+  `<meta>`), which the WebView's HTML parser tolerates natively. If revisiting
+  this tradeoff, search git history for `214f923` (the native rewrite) and its
+  revert for what was tried.
+  **The recurring bug to watch for here is a "ghost second column"** — a
+  sliver of the next column's text bleeding in at the page edge, most visible
+  right after a font/margin/theme change. Known contributing causes already
+  fixed once each (don't regress them): (1) the EPUB's own `<link
+  rel="stylesheet">`/`<style>` fighting the column-width math — stripped
+  before applying ours; (2) sub-pixel drift between the `column-width` used
+  for CSS and the `stepWidth` used for the page-turn transform — both are now
+  computed from the exact same `Math.floor(...)` JS expression
+  (`StepWidthJs`), and `column-width` is deliberately rendered 2px *wider*
+  than `stepWidth` so any rounding residue stays hidden inside the current
+  column instead of exposing the next one; (3) the WebView's column engine
+  not re-laying-out synchronously after the `<style>` mutation — worked
+  around with a forced reflow (`void document.body.offsetHeight;`) right
+  after mutating the style. If it resurfaces again, that's three prior
+  attempts already spent on it — worth a real device repro before guessing a
+  fourth theory blind. PDF rendering uses `Windows.Data.Pdf` natively
+  (±1-page render window to limit RAM), no WebView — PDF is a fixed-layout
+  format so native rendering has none of the reflow-pagination problems EPUB
+  does.
 - **OPDS is the only server protocol.** `Services/OpdsClient.cs` talks to
   `/opds` (Atom/OPDS feed) — covers via `.../image` and `.../image/thumbnail`
   links, per-format download via acquisition links, pagination via

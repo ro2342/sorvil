@@ -39,14 +39,23 @@ namespace Sorvil.Services
             return SanitizeName(bookId);
         }
 
-        // Pra quem (o parser nativo do capítulo, EpubContentParser) precisa
-        // ler arquivos do livro já extraído — texto do capítulo, imagens
-        // referenciadas — sem depender do esquema ms-appdata:/// que só
-        // fazia sentido pra navegação de WebView.
-        public static async Task<StorageFolder> GetExtractedBookFolderAsync(string bookId)
+        // WebView nativo do UWP navega em conteúdo de ApplicationData local
+        // via esse esquema fixo — cada segmento precisa ser escapado à
+        // parte (nomes de capítulo podem ter espaço/acento).
+        public static Uri BuildLocalContentUri(string folderName, string relativePath)
         {
-            StorageFolder root = await ApplicationData.Current.LocalFolder.GetFolderAsync(ExtractedFolderName);
-            return await root.GetFolderAsync(GetExtractedFolderName(bookId));
+            StringBuilder builder = new StringBuilder("ms-appdata:///local");
+            string combined = ExtractedFolderName + "/" + folderName + "/" + relativePath;
+            foreach (string segment in combined.Split('/'))
+            {
+                if (segment.Length == 0)
+                {
+                    continue;
+                }
+                builder.Append('/');
+                builder.Append(Uri.EscapeDataString(segment));
+            }
+            return new Uri(builder.ToString());
         }
 
         public static async Task<EpubManifest> ExtractAndParseAsync(string bookId, StorageFile epubFile)
@@ -108,7 +117,7 @@ namespace Sorvil.Services
             }
         }
 
-        public static async Task<StorageFile> GetFileByRelativePathAsync(StorageFolder root, string relativePath)
+        private static async Task<StorageFile> GetFileByRelativePathAsync(StorageFolder root, string relativePath)
         {
             string[] parts = relativePath.Split('/');
             StorageFolder currentFolder = root;

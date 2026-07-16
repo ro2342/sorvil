@@ -46,27 +46,7 @@
     </Page.Resources>
 
     <Grid x:Name="RootGrid" SizeChanged="RootGrid_SizeChanged">
-        <!-- Sem WebView: cada "página" é um RichTextBlock (a primeira) ou
-             RichTextBlockOverflow (as seguintes), encadeados em tempo de
-             execução — técnica nativa padrão do UWP pra texto fluido
-             paginado, sem depender de CSS/motor de renderização nenhum.
-             Só um fica visível por vez (Visibility), os outros ficam
-             prontos por baixo pra virar página ser instantâneo. -->
-        <Grid x:Name="PagesHost" SizeChanged="PagesHost_SizeChanged" Background="White" />
-
-        <!-- Onde a cadeia inteira de páginas do capítulo (RichTextBlock +
-             RichTextBlockOverflow) vive de verdade — precisa ficar "Visible"
-             de verdade (não Collapsed) pra o layout calcular HasOverflowContent
-             direito, então em vez de esconder as páginas por Visibility (o
-             que deixava mais de uma "viva" no mesmo Grid do PagesHost ao
-             mesmo tempo — a "segunda coluna" colada na primeira), elas ficam
-             aqui, fisicamente fora da viewport via RenderTransform, e
-             ShowPage() move só a página atual pra dentro do PagesHost. -->
-        <Canvas x:Name="OffscreenPaginationHost" IsHitTestVisible="False">
-            <Canvas.RenderTransform>
-                <TranslateTransform X="-10000" Y="-10000" />
-            </Canvas.RenderTransform>
-        </Canvas>
+        <WebView x:Name="ContentWebView" SizeChanged="ContentWebView_SizeChanged" />
 
         <!-- "Brilho": um overlay preto semitransparente por cima de tudo,
              com a Opacity controlada por um slider — não mexe em brilho de

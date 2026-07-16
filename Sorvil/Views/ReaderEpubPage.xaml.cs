@@ -1,7 +1,6 @@
 using Sorvil.Models;
 using Sorvil.Services;
 using System;
-using System.Collections.Generic;
 using System.Threading.Tasks;
 using Windows.Storage;
 using Windows.UI;
@@ -10,7 +9,6 @@ using Windows.UI.Text;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Controls.Primitives;
-using Windows.UI.Xaml.Documents;
 using Windows.UI.Xaml.Input;
 using Windows.UI.Xaml.Media;
 using Windows.UI.Xaml.Navigation;
@@ -18,22 +16,13 @@ using Windows.UI.Xaml.Navigation;
 namespace Sorvil.Views
 {
     // Leitor de EPUB/KEPUB com paginação real de e-reader (tipo Kindle/
-    // Freda), renderizado 100% nativo — sem WebView, sem CSS. Cada
-    // capítulo vira uma lista de Paragraph nativos (EpubContentParser) e a
-    // paginação usa o padrão nativo do UWP pra texto fluido: um
-    // RichTextBlock (primeira "página") encadeado com RichTextBlockOverflow
-    // (páginas seguintes) via OverflowContentTarget — o próprio motor de
-    // texto do XAML decide onde cada página termina, sem depender de
-    // nenhum motor de CSS/coluna de terceiros. A cadeia inteira do capítulo
-    // fica pronta num host offscreen (OffscreenPaginationHost); só a página
-    // atual é movida pra dentro do PagesHost visível por vez (ShowPage) —
-    // nunca há duas páginas de verdade dividindo o mesmo espaço visível.
-    //
-    // Essa troca veio depois de várias tentativas de fazer o mesmo via
-    // WebView+CSS (column-width/column-count) esbarrarem repetidas vezes
-    // em bugs de motor de renderização antigo (segunda coluna aparecendo,
-    // tema/fonte não aplicando de forma confiável) — nativo dá controle
-    // total sobre cada propriedade de texto, sem surpresa de engine.
+    // Freda), não uma página de web corrida. A técnica: injeta CSS que
+    // transforma o <body> do capítulo em colunas do tamanho exato do
+    // WebView (column-width = largura do WebView, column-gap 0) — o
+    // motor de renderização já quebra o texto em "páginas" sozinho. Virar
+    // página é só aplicar um transform: translateX deslocando o conteúdo
+    // uma tela inteira pro lado (sem rolagem nativa visível, controle
+    // total via script).
     //
     // A casca de leitura é uma máquina de estados só (ReaderChromeState),
     // igual ao protótipo em sorvil-mockup.html: nenhum estado (imersivo),
@@ -42,9 +31,9 @@ namespace Sorvil.Views
     // cima por um cabeçalho claro + lista de capítulos).
     //
     // KEPUB é tratado como EPUB comum — os <span> extras da Kobo não
-    // atrapalham a leitura, só viram texto normal. O EPUB só é
-    // descompactado (custo real) na primeira abertura — EpubExtractor já
-    // cacheia isso em BooksExtracted/, então reabrir o mesmo livro é rápido.
+    // atrapalham a paginação. O EPUB só é descompactado (custo real) na
+    // primeira abertura — EpubExtractor já cacheia isso em
+    // BooksExtracted/, então reabrir o mesmo livro é rápido.
     public sealed partial class ReaderEpubPage : Page
     {
         private enum ReaderChromeState
@@ -60,31 +49,22 @@ namespace Sorvil.Views
         // Fontes que já vêm instaladas no Windows 10 Mobile — não
         // precisa baixar/empacotar nada.
         private static readonly string[] FontFamilyLabels = { "Padrão", "Segoe UI", "Times New Roman", "Verdana", "Consolas" };
-        // FontFamily nativo aceita lista separada por vírgula como
-        // fallback (igual CSS) — Segoe UI é a fonte de sistema, sempre
-        // presente, então serve de rede de segurança se a fonte principal
-        // não existir no aparelho.
         private static readonly string[] FontFamilyValues =
         {
-            "Georgia,Segoe UI",
-            "Segoe UI",
-            "Times New Roman,Segoe UI",
-            "Verdana,Segoe UI",
-            "Consolas,Segoe UI",
+            "Georgia, 'EB Garamond', serif",
+            "'Segoe UI', sans-serif",
+            "'Times New Roman', serif",
+            "Verdana, sans-serif",
+            "Consolas, monospace",
         };
 
-        private const double BaseFontSize = 16.0;
-
         private string _bookId;
-        private StorageFolder _bookFolder;
+        private string _folderName;
         private EpubManifest _manifest;
         private int _chapterIndex;
         private int _pageIndexInChapter;
         private int _totalPagesInChapter = 1;
-        private List<FrameworkElement> _currentPages = new List<FrameworkElement>();
-        private bool _initialChapterLoaded;
-        private int _pendingInitialChapter;
-        private int? _pendingInitialPage;
+        private int? _pendingStartPage;
         private BookRecord _record;
         private double _manipulationTranslationX;
         private double _manipulationScale = 1.0;
@@ -94,6 +74,8 @@ namespace Sorvil.Views
         public ReaderEpubPage()
         {
             this.InitializeComponent();
+            ContentWebView.NavigationCompleted += ContentWebView_NavigationCompleted;
+            ContentWebView.NavigationFailed += ContentWebView_NavigationFailed;
             SystemNavigationManager.GetForCurrentView().BackRequested += OnBackRequested;
 
             _suppressSliderEvents = true;
@@ -176,7 +158,7 @@ namespace Sorvil.Views
 
                 LoadingStatusText.Text = "Extraindo...";
                 _manifest = await EpubExtractor.ExtractAndParseAsync(_bookId, epubFile);
-                _bookFolder = await EpubExtractor.GetExtractedBookFolderAsync(_bookId);
+                _folderName = EpubExtractor.GetExtractedFolderName(_bookId);
 
                 if (_manifest.SpineFiles.Count == 0)
                 {
@@ -203,15 +185,9 @@ namespace Sorvil.Views
                     startPage = 0;
                 }
 
-                _pendingInitialChapter = startChapter;
-                _pendingInitialPage = startPage;
-                _chapterIndex = startChapter;
-
-                // Se o PagesHost ainda não tiver um tamanho de verdade
-                // (layout ainda não rodou), TryStartInitialLoadAsync não
-                // faz nada agora — PagesHost_SizeChanged termina o
-                // trabalho assim que o primeiro tamanho real chegar.
-                await TryStartInitialLoadAsync();
+                // Não desliga o indicador aqui — ContentWebView_NavigationCompleted
+                // cuida disso quando o capítulo realmente terminar de renderizar.
+                await NavigateToChapterAsync(startChapter, startPage);
             }
             catch (Exception ex)
             {
@@ -225,72 +201,66 @@ namespace Sorvil.Views
             LoadingStatusText.Text = message;
         }
 
-        private async Task TryStartInitialLoadAsync()
-        {
-            if (_initialChapterLoaded || _manifest == null)
-            {
-                return;
-            }
-            if (PagesHost.ActualWidth <= 0 || PagesHost.ActualHeight <= 0)
-            {
-                return;
-            }
-            _initialChapterLoaded = true;
-            await OpenChapterAsync(_pendingInitialChapter, _pendingInitialPage);
-        }
-
-        private async void PagesHost_SizeChanged(object sender, SizeChangedEventArgs e)
-        {
-            if (e.NewSize.Width <= 0 || e.NewSize.Height <= 0)
-            {
-                return;
-            }
-
-            if (!_initialChapterLoaded)
-            {
-                await TryStartInitialLoadAsync();
-                return;
-            }
-
-            if (_manifest == null)
-            {
-                return;
-            }
-
-            // Rotação de tela ou primeira medição de layout — reaplica a
-            // paginação pro tamanho novo. Como isso é raro num telefone
-            // (orientação fixa na prática), não tenta preservar a posição
-            // exata: só reancora no início do capítulo atual.
-            await RebuildCurrentChapterPagesAsync();
-            ShowPage(0);
-            UpdateIndicator();
-        }
-
         // startPage: null = primeira página, -1 = última página (entrando
         // de trás pra frente, ex.: botão Anterior no início de um capítulo).
-        private async Task OpenChapterAsync(int chapterIndex, int? startPage)
+        private async Task NavigateToChapterAsync(int chapterIndex, int? startPage)
         {
             _chapterIndex = chapterIndex;
+            _pendingStartPage = startPage;
             LoadingRing.IsActive = true;
             LoadingStatusText.Text = "Carregando capítulo...";
+            UpdateWebViewBackgroundColor();
+            Uri uri = EpubExtractor.BuildLocalContentUri(_folderName, _manifest.SpineFiles[chapterIndex]);
+            ContentWebView.Navigate(uri);
+        }
 
-            await RebuildCurrentChapterPagesAsync();
+        // O WebView pinta com fundo branco por padrão antes de qualquer
+        // CSS carregar — como o tema escolhido só é aplicado DEPOIS que a
+        // navegação termina (ContentWebView_NavigationCompleted), isso
+        // aparecia como um flash branco antes de escurecer pro tema
+        // escuro a cada troca de capítulo. Setando DefaultBackgroundColor
+        // ANTES de navegar, o próprio WebView já nasce com a cor certa,
+        // sem esperar o CSS.
+        private void UpdateWebViewBackgroundColor()
+        {
+            string theme = ReaderPreferenceStore.GetTheme();
+            Color color;
+            switch (theme)
+            {
+                case "sepia":
+                    color = Color.FromArgb(0xFF, 0xF4, 0xEC, 0xD8);
+                    break;
+                case "dark":
+                    color = Color.FromArgb(0xFF, 0x1B, 0x1B, 0x1F);
+                    break;
+                default:
+                    color = Colors.White;
+                    break;
+            }
+            ContentWebView.DefaultBackgroundColor = color;
+        }
+
+        private async void ContentWebView_NavigationCompleted(WebView sender, WebViewNavigationCompletedEventArgs args)
+        {
+            await ApplyReaderStyleAsync();
+            _totalPagesInChapter = await GetTotalPagesAsync();
 
             int targetPage;
-            if (startPage == null)
+            if (_pendingStartPage == null)
             {
                 targetPage = 0;
             }
-            else if (startPage.Value < 0)
+            else if (_pendingStartPage.Value < 0)
             {
-                targetPage = _currentPages.Count - 1;
+                targetPage = _totalPagesInChapter - 1;
             }
             else
             {
-                targetPage = Math.Min(startPage.Value, _currentPages.Count - 1);
+                targetPage = Math.Min(_pendingStartPage.Value, _totalPagesInChapter - 1);
             }
+            _pendingStartPage = null;
 
-            ShowPage(targetPage);
+            await GoToPageAsync(targetPage);
             UpdateIndicator();
             await SavePositionAsync();
 
@@ -298,97 +268,26 @@ namespace Sorvil.Views
             LoadingStatusText.Text = string.Empty;
         }
 
-        // O coração da paginação nativa: constrói o capítulo inteiro como
-        // Paragraphs, joga no primeiro RichTextBlock, e vai encadeando
-        // RichTextBlockOverflow enquanto sobrar conteúdo que não coube —
-        // UpdateLayout() força uma passada de layout síncrona depois de
-        // cada container novo, senão HasOverflowContent ainda não teria
-        // sido calculado (só fica certo depois que o elemento é medido).
-        private async Task RebuildCurrentChapterPagesAsync()
+        private void ContentWebView_NavigationFailed(object sender, WebViewNavigationFailedEventArgs args)
         {
-            ReaderTextStyle style = BuildCurrentTextStyle();
-            List<Paragraph> paragraphs = await EpubContentParser.ParseChapterAsync(
-                _bookFolder, _manifest.SpineFiles[_chapterIndex], style);
-
-            PagesHost.Children.Clear();
-            OffscreenPaginationHost.Children.Clear();
-            _currentPages = new List<FrameworkElement>();
-
-            double pageWidth = PagesHost.ActualWidth;
-            double pageHeight = PagesHost.ActualHeight;
-            int marginPx = ReaderPreferenceStore.GetMarginPx();
-
-            RichTextBlock main = new RichTextBlock
-            {
-                Width = pageWidth,
-                Height = pageHeight,
-                Padding = new Thickness(marginPx),
-                IsTextSelectionEnabled = false,
-            };
-            foreach (Paragraph paragraph in paragraphs)
-            {
-                main.Blocks.Add(paragraph);
-            }
-
-            OffscreenPaginationHost.Children.Add(main);
-            main.UpdateLayout();
-            _currentPages.Add(main);
-
-            FrameworkElement previous = main;
-            bool hasMore = main.HasOverflowContent;
-            while (hasMore)
-            {
-                RichTextBlockOverflow overflow = new RichTextBlockOverflow
-                {
-                    Width = pageWidth,
-                    Height = pageHeight,
-                    Padding = new Thickness(marginPx),
-                };
-
-                RichTextBlock previousMain = previous as RichTextBlock;
-                if (previousMain != null)
-                {
-                    previousMain.OverflowContentTarget = overflow;
-                }
-                else
-                {
-                    ((RichTextBlockOverflow)previous).OverflowContentTarget = overflow;
-                }
-
-                OffscreenPaginationHost.Children.Add(overflow);
-                overflow.UpdateLayout();
-                _currentPages.Add(overflow);
-
-                hasMore = overflow.HasOverflowContent;
-                previous = overflow;
-            }
-
-            _totalPagesInChapter = _currentPages.Count;
+            LoadingRing.IsActive = false;
+            LoadingStatusText.Text = "Erro ao carregar o capítulo.";
         }
 
-        // PagesHost (a área visível) nunca tem mais de um filho: trocar de
-        // página é mover fisicamente o container de volta pro host offscreen
-        // (onde a cadeia inteira do capítulo continua viva, pronta pra
-        // qualquer outra página ser exibida na hora) e trazer o alvo pra
-        // dentro do PagesHost. Um UIElement só pode ter um Parent por vez —
-        // por isso remove antes de adicionar em cada lado.
-        private void ShowPage(int pageIndex)
+        private async void ContentWebView_SizeChanged(object sender, SizeChangedEventArgs e)
         {
-            _pageIndexInChapter = pageIndex;
-
-            if (PagesHost.Children.Count > 0)
+            // Rotação de tela ou primeira medição de layout — reaplica a
+            // paginação pro tamanho novo. Como isso é raro num telefone
+            // (orientação fixa na prática), não tenta preservar a posição
+            // exata: só reancora no início do capítulo atual.
+            if (_manifest == null || e.NewSize.Width <= 0 || e.NewSize.Height <= 0)
             {
-                UIElement current = PagesHost.Children[0];
-                PagesHost.Children.Clear();
-                OffscreenPaginationHost.Children.Add(current);
+                return;
             }
-
-            if (pageIndex >= 0 && pageIndex < _currentPages.Count)
-            {
-                FrameworkElement target = _currentPages[pageIndex];
-                OffscreenPaginationHost.Children.Remove(target);
-                PagesHost.Children.Add(target);
-            }
+            await ApplyReaderStyleAsync();
+            _totalPagesInChapter = await GetTotalPagesAsync();
+            await GoToPageAsync(0);
+            UpdateIndicator();
         }
 
         // Progresso é uma aproximação por capítulo, não por bytes de
@@ -454,7 +353,7 @@ namespace Sorvil.Views
             ApplyReaderChromeState();
             if (entry != null)
             {
-                await OpenChapterAsync(entry.SpineIndex, null);
+                await NavigateToChapterAsync(entry.SpineIndex, null);
             }
         }
 
@@ -538,13 +437,13 @@ namespace Sorvil.Views
         {
             if (_pageIndexInChapter < _totalPagesInChapter - 1)
             {
-                ShowPage(_pageIndexInChapter + 1);
+                await GoToPageAsync(_pageIndexInChapter + 1);
                 UpdateIndicator();
                 await SavePositionAsync();
             }
             else if (_manifest != null && _chapterIndex < _manifest.SpineFiles.Count - 1)
             {
-                await OpenChapterAsync(_chapterIndex + 1, null);
+                await NavigateToChapterAsync(_chapterIndex + 1, null);
             }
         }
 
@@ -552,13 +451,13 @@ namespace Sorvil.Views
         {
             if (_pageIndexInChapter > 0)
             {
-                ShowPage(_pageIndexInChapter - 1);
+                await GoToPageAsync(_pageIndexInChapter - 1);
                 UpdateIndicator();
                 await SavePositionAsync();
             }
             else if (_manifest != null && _chapterIndex > 0)
             {
-                await OpenChapterAsync(_chapterIndex - 1, -1);
+                await NavigateToChapterAsync(_chapterIndex - 1, -1);
             }
         }
 
@@ -877,6 +776,7 @@ namespace Sorvil.Views
         {
             ReaderPreferenceStore.SetTheme(value);
             RefreshSegRow(ThemeRow, value);
+            UpdateWebViewBackgroundColor();
             await ReapplyStyleAndRepaginateAsync();
         }
 
@@ -959,62 +859,183 @@ namespace Sorvil.Views
             }
         }
 
-        // Mudar fonte/tema/espaçamento/margem/justificação muda quantas
-        // páginas cabem no capítulo — por isso reconstrói a paginação do
-        // zero (volta pra página 0) em vez de tentar preservar o índice de
-        // página antigo, que ficaria errado.
+        // — scripts de paginação —
+
+        private async Task<string> InvokeAsync(string script)
+        {
+            try
+            {
+                return await ContentWebView.InvokeScriptAsync("eval", new[] { script });
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        // Fórmula do "passo" de página em px — usada com o texto IDÊNTICO
+        // aqui, em GoToPageAsync e no column-width de ApplyReaderStyleAsync.
+        // Math.floor garante um inteiro: a suspeita mais forte pra segunda
+        // coluna sobreviver às tentativas anteriores é o motor de coluna do
+        // WebView arredondando o column-width real de um jeito e o
+        // translateX usando um valor fracionário ligeiramente diferente —
+        // qualquer resíduo de sub-pixel já bastava pra descolar o corte da
+        // coluna do deslocamento aplicado, deixando uma fatia da coluna
+        // seguinte visível na borda.
+        private static string StepWidthJs(int margin)
+        {
+            return "Math.floor(document.documentElement.clientWidth - (" + margin + " * 2))";
+        }
+
+        private async Task<int> GetTotalPagesAsync()
+        {
+            int margin = ReaderPreferenceStore.GetMarginPx();
+            string script =
+                "(function() {" +
+                "var stepWidth = " + StepWidthJs(margin) + ";" +
+                "var usableScroll = Math.ceil(document.body.scrollWidth) - (" + margin + " * 2);" +
+                "return Math.max(1, Math.ceil(usableScroll / stepWidth));" +
+                "})();";
+            string result = await InvokeAsync(script);
+            int pages;
+            return int.TryParse(result, out pages) && pages > 0 ? pages : 1;
+        }
+
+        private async Task GoToPageAsync(int pageIndex)
+        {
+            _pageIndexInChapter = pageIndex;
+            int margin = ReaderPreferenceStore.GetMarginPx();
+            // translate3d em vez de translateX puro — promove a camada pra
+            // composição via GPU, o que evita artefato de repintura
+            // ("ghosting"/coluna fantasma) que alguns builds mais antigos
+            // do motor da WebView têm com transform 2D simples.
+            string script =
+                "(function() {" +
+                "var stepWidth = " + StepWidthJs(margin) + ";" +
+                "var offset = " + pageIndex + " * stepWidth;" +
+                "document.body.style.transform = 'translate3d(-' + offset + 'px, 0, 0)';" +
+                "})();";
+            await InvokeAsync(script);
+        }
+
+        // Mudar fonte/tema/espaçamento/margem muda quantas páginas cabem
+        // no capítulo — por isso repagina do zero (volta pra página 0) em
+        // vez de só reaplicar o CSS mantendo o índice de página antigo,
+        // que ficaria errado.
         private async Task ReapplyStyleAndRepaginateAsync()
         {
-            if (_manifest == null || _bookFolder == null)
-            {
-                return;
-            }
-            await RebuildCurrentChapterPagesAsync();
-            ShowPage(0);
+            await ApplyReaderStyleAsync();
+            _totalPagesInChapter = await GetTotalPagesAsync();
+            await GoToPageAsync(0);
             UpdateIndicator();
             await SavePositionAsync();
         }
 
-        // Cor/tamanho/fonte/espaçamento/alinhamento aplicados direto em
-        // cada Paragraph (ver EpubContentParser) — nada de injeção de
-        // CSS, nada de motor de renderização terceiro decidindo se a
-        // propriedade "pegou" ou não.
-        private ReaderTextStyle BuildCurrentTextStyle()
+        private async Task ApplyReaderStyleAsync()
         {
+            int fontSize = ReaderPreferenceStore.GetFontSizePercent();
             string theme = ReaderPreferenceStore.GetTheme();
-            Color foregroundColor;
-            Color backgroundColor;
+            double lineSpacing = ReaderPreferenceStore.GetLineSpacing();
+            int margin = ReaderPreferenceStore.GetMarginPx();
+            string justification = ReaderPreferenceStore.GetJustification();
+            string fontFamily = ReaderPreferenceStore.GetFontFamily();
+
+            string background;
+            string foreground;
             switch (theme)
             {
                 case "sepia":
-                    foregroundColor = Color.FromArgb(0xFF, 0x5B, 0x46, 0x36);
-                    backgroundColor = Color.FromArgb(0xFF, 0xF4, 0xEC, 0xD8);
+                    background = "#f4ecd8";
+                    foreground = "#5b4636";
                     break;
                 case "dark":
-                    foregroundColor = Color.FromArgb(0xFF, 0xE8, 0xE8, 0xEA);
-                    backgroundColor = Color.FromArgb(0xFF, 0x1B, 0x1B, 0x1F);
+                    background = "#1b1b1f";
+                    foreground = "#e8e8ea";
                     break;
                 default:
-                    foregroundColor = Color.FromArgb(0xFF, 0x1B, 0x1B, 0x1F);
-                    backgroundColor = Colors.White;
+                    background = "#ffffff";
+                    foreground = "#1b1b1f";
                     break;
             }
-            PagesHost.Background = new SolidColorBrush(backgroundColor);
 
-            double fontSize = BaseFontSize * ReaderPreferenceStore.GetFontSizePercent() / 100.0;
-            double lineHeight = fontSize * ReaderPreferenceStore.GetLineSpacing();
-            TextAlignment textAlignment = ReaderPreferenceStore.GetJustification() == "justify"
-                ? TextAlignment.Justify
-                : TextAlignment.Left;
+            // A causa mais provável da segunda coluna persistente: EPUBs
+            // reais trazem a PRÓPRIA folha de estilo (link/style no head),
+            // muitas vezes com `body { max-width: ...; margin: 0 auto; }`
+            // pensada pra tela de desktop. Isso faz a largura REAL do body
+            // ser diferente da largura do viewport que a gente mede aqui —
+            // então mesmo com column-width calculado certinho a partir do
+            // clientWidth, o body renderiza mais largo (ou mais estreito)
+            // que isso, e o motor de colunas do WebView decide que cabe
+            // mais de uma coluna. Por isso agora: (1) remove todo <link
+            // rel=stylesheet> e <style> que não seja o nosso, antes de
+            // aplicar qualquer coisa; (2) força width:100%/max-width:none
+            // em html e body, pra garantir que a largura de verdade seja
+            // sempre igual ao viewport, não o que o CSS original do livro
+            // pedia. column-count:1 continua como reforço, mas sozinho não
+            // bastava — a causa real era essa disputa de largura.
+            //
+            // pageWidth/pageHeight são medidos de DENTRO do próprio
+            // JavaScript (document.documentElement.clientWidth/Height),
+            // não calculados em C# a partir de ContentWebView.ActualWidth
+            // — evita a diferença de escala/DPI entre DIPs do XAML e px
+            // CSS do WebView.
+            //
+            // A margem de leitura vira padding do body, não Margin do
+            // WebView no XAML — um Margin ali deixava a cor de fundo da
+            // Page (não a do tema de leitura escolhido) visível como uma
+            // borda ao redor do texto. column-width já sai descontando
+            // essa margem duas vezes (esquerda+direita) pra bater com o
+            // mesmo cálculo usado em GetTotalPagesAsync/GoToPageAsync.
+            //
+            // Fundo é forçado tanto em html quanto em body, e qualquer
+            // elemento interno tem o próprio fundo zerado (background-color:
+            // transparent) — sem isso, uma div/wrapper do próprio EPUB com
+            // fundo branco embutido continua aparecendo por cima do tema
+            // escolhido.
+            //
+            // Duas camadas extras de reforço contra a segunda coluna, além
+            // do que já existia:
+            // (1) column-width sai 2px MAIOR que o stepWidth usado pelo
+            //     translate3d em GoToPageAsync/GetTotalPagesAsync — de
+            //     propósito. Qualquer arredondamento do motor de coluna
+            //     passa a sobrar DENTRO da coluna atual (invisível, é só o
+            //     fim da mesma página) em vez de expor o começo da coluna
+            //     seguinte na borda direita.
+            // (2) um reflow síncrono forçado (leitura de offsetHeight) logo
+            //     depois de mutar o <style> — sem isso, builds antigos do
+            //     motor da WebView às vezes só recalculavam as colunas no
+            //     próximo evento de pintura, não na hora da mutação,
+            //     deixando GetTotalPagesAsync ler um scrollWidth ainda
+            //     desatualizado.
+            string script =
+                "(function() {" +
+                "var foreign = document.querySelectorAll('link[rel=\"stylesheet\"], style:not(#sorvil-reader-style)');" +
+                "for (var i = 0; i < foreign.length; i++) { foreign[i].parentNode.removeChild(foreign[i]); }" +
+                "var pageHeight = Math.floor(document.documentElement.clientHeight);" +
+                "var margin = " + margin + ";" +
+                "var stepWidth = " + StepWidthJs(margin) + ";" +
+                "var style = document.getElementById('sorvil-reader-style');" +
+                "if (!style) { style = document.createElement('style'); style.id = 'sorvil-reader-style'; document.head.appendChild(style); }" +
+                "style.innerHTML = " +
+                "'html { margin:0 !important; padding:0 !important; width:100% !important; max-width:none !important; overflow:hidden !important; background-color: " + background + " !important; } ' +" +
+                "'body { margin:0 !important; width:100% !important; max-width:none !important; box-sizing:border-box !important; " +
+                "font-size: " + fontSize + "% !important; " +
+                "font-family: " + fontFamily + " !important; " +
+                "background-color: " + background + " !important; " +
+                "line-height: " + lineSpacing.ToString(System.Globalization.CultureInfo.InvariantCulture) + " !important; " +
+                "text-align: " + justification + " !important; " +
+                "column-gap: 0px !important; " +
+                "column-fill: auto !important; " +
+                "column-count: 1 !important; " +
+                "overflow: hidden !important; " +
+                "} ' +" +
+                "'* { color: " + foreground + " !important; background-color: transparent !important; max-width: 100% !important; } ' +" +
+                "'img, table { max-width: 100% !important; height: auto !important; background-color: initial !important; }';" +
+                "style.innerHTML += 'body { height: ' + pageHeight + 'px !important; padding: 0 ' + margin + 'px !important; column-width: ' + (stepWidth + 2) + 'px !important; }';" +
+                "void document.body.offsetHeight;" +
+                "})();";
 
-            return new ReaderTextStyle
-            {
-                FontSize = fontSize,
-                FontFamily = new FontFamily(ReaderPreferenceStore.GetFontFamily()),
-                Foreground = new SolidColorBrush(foregroundColor),
-                LineHeight = lineHeight,
-                TextAlignment = textAlignment,
-            };
+            await InvokeAsync(script);
         }
     }
 }
