@@ -102,12 +102,48 @@ namespace Sorvil.Views
             ContentWebView.NavigationFailed += ContentWebView_NavigationFailed;
             ContentWebView.ScriptNotify += ContentWebView_ScriptNotify;
             SystemNavigationManager.GetForCurrentView().BackRequested += OnBackRequested;
+            this.Loaded += ReaderEpubPage_Loaded;
 
             _suppressSliderEvents = true;
             BuildFontPanel();
             BuildThemePanel();
             BuildGesturesPanel();
             _suppressSliderEvents = false;
+        }
+
+        // WebView.Navigate() chamado antes do controle estar de fato
+        // realizado na árvore visual pode lançar uma COMException síncrona
+        // (Operation aborted, E_ABORT) — aconteceu de verdade num aparelho
+        // real logo na primeira navegação pro bootstrap do epub.js. O
+        // preparo do livro (ler arquivo, base64) em OnNavigatedTo pode
+        // terminar antes OU depois do Loaded da página disparar, então os
+        // dois lados chamam TryNavigateToReaderBootstrap — só o que
+        // acontecer por último de fato navega.
+        private bool _pageLoaded;
+        private bool _navigatedToBootstrap;
+
+        private void ReaderEpubPage_Loaded(object sender, RoutedEventArgs e)
+        {
+            _pageLoaded = true;
+            TryNavigateToReaderBootstrap();
+        }
+
+        private void TryNavigateToReaderBootstrap()
+        {
+            if (!_pageLoaded || _pendingBase64 == null || _navigatedToBootstrap)
+            {
+                return;
+            }
+            _navigatedToBootstrap = true;
+            try
+            {
+                LoadingStatusText.Text = "Carregando leitor...";
+                ContentWebView.Navigate(new Uri("ms-appx:///Assets/EpubJs/reader.html"));
+            }
+            catch (Exception ex)
+            {
+                ShowLoadError("Erro ao carregar o leitor: " + ex.Message);
+            }
         }
 
         // Esta página navega no Frame raiz da janela (App.RootFrame), não
@@ -207,9 +243,10 @@ namespace Sorvil.Views
                 _pendingBase64 = Convert.ToBase64String(epubBytes);
                 _pendingStartCfi = _record.ReadingPositionJson;
 
-                LoadingStatusText.Text = "Carregando leitor...";
-                step = "navegando pro leitor (reader.html)";
-                ContentWebView.Navigate(new Uri("ms-appx:///Assets/EpubJs/reader.html"));
+                // Não navega direto aqui — TryNavigateToReaderBootstrap só
+                // faz isso depois que o Loaded da página já disparou (ver
+                // comentário lá), evitando Navigate() cedo demais.
+                TryNavigateToReaderBootstrap();
             }
             catch (Exception ex)
             {
