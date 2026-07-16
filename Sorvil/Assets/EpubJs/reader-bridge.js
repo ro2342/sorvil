@@ -234,16 +234,34 @@
     try {
       book = ePub(arrayBuffer);
       checkpoint("4/8 ePub() construído");
-      // "scrolled-continuous" trata o livro inteiro como uma rolagem só
-      // (capítulos emendados), então next()/prev() avançam por UMA TELA
-      // de cada vez, cruzando fronteira de capítulo suavemente — "scrolled-doc"
-      // trata cada capítulo como "uma página só" (next() = pular pro
-      // capítulo inteiro seguinte), o que não bate com o toque/gesto de
-      // "virar página" que o app espera.
+      // flow:"scrolled-continuous" sozinho NÃO faz o que o nome sugere —
+      // conferido direto no código-fonte do epub.js (src/rendition.js):
+      // é só um apelido que vira flow:"scrolled" puro e simples. Quem de
+      // fato decide se os capítulos ficam emendados numa rolagem só
+      // (em vez de mostrados um de cada vez) é a opção SEPARADA
+      // "manager" — sem manager:"continuous" explícito, o manager padrão
+      // trata cada seção/capítulo como uma unidade isolada, e é por
+      // isso que next()/prev() pulavam capítulo inteiro em vez de rolar
+      // uma tela. Com manager:"continuous" (conferido em
+      // src/managers/continuous/index.js), next()/prev() fazem
+      // scrollBy(0, this.layout.height) — uma tela por vez, cruzando
+      // capítulo suavemente, exatamente o comportamento esperado.
+      //
+      // method:"write" força o mesmo document.write() em iframe que já
+      // provou funcionar pro documento externo (via NavigateToString) —
+      // sem isso, o epub.js detecta suporte a "srcdoc" e usa
+      // iframe.srcdoc, que combinado com sandbox="allow-same-origin"
+      // tem bug conhecido de engines EdgeHTML/Trident antigas tratando
+      // o iframe como origem diferente ("Permission denied" ao tentar
+      // acessar contentWindow/contentDocument depois). "write" é a
+      // própria alternativa que o epub.js já tem pronta pra esse caso,
+      // não lógica inventada por nós.
       rendition = book.renderTo("viewer", {
         width: "100%",
         height: "100%",
-        flow: "scrolled-continuous",
+        manager: "continuous",
+        flow: "scrolled",
+        method: "write",
         spread: "none",
       });
       checkpoint("5/8 renderTo() chamado");
