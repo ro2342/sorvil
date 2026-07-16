@@ -16,13 +16,11 @@ using Windows.UI.Xaml.Navigation;
 namespace Sorvil.Views
 {
     // Leitor de EPUB/KEPUB com paginação real de e-reader (tipo Kindle/
-    // Freda), não uma página de web corrida. A técnica: injeta CSS que
-    // transforma o <body> do capítulo em colunas do tamanho exato do
-    // WebView (column-width = largura do WebView, column-gap 0) — o
-    // motor de renderização já quebra o texto em "páginas" sozinho. Virar
-    // página é só aplicar um transform: translateX deslocando o conteúdo
-    // uma tela inteira pro lado (sem rolagem nativa visível, controle
-    // total via script).
+    // Freda), não uma página de web corrida. A técnica: rolagem vertical
+    // via script (window.scrollTo), um "tela inteira" de altura por vez —
+    // ver a seção "scripts de paginação" mais abaixo pro porquê disso (não
+    // CSS multi-column, que vazava uma segunda coluna de verdade em
+    // aparelho real).
     //
     // A casca de leitura é uma máquina de estados só (ReaderChromeState),
     // igual ao protótipo em sorvil-mockup.html: nenhum estado (imersivo),
@@ -860,6 +858,27 @@ namespace Sorvil.Views
         }
 
         // — scripts de paginação —
+        //
+        // Paginação via CSS multi-column (column-width/column-count +
+        // translateX) foi tentada três vezes e nas três sobrou uma "segunda
+        // coluna" visível de verdade num aparelho real — não vazamento de
+        // sub-pixel, uma faixa larga e legível de texto da coluna seguinte
+        // (ver foto no histórico de commits/conversa). O suporte a CSS
+        // multi-column nunca foi consistente entre motores de navegador, e
+        // a WebView do Windows 10 Mobile claramente não faz esse cálculo do
+        // jeito esperado. Em vez de insistir em coluna, a virada de página
+        // agora é rolagem vertical de verdade (window.scrollTo) por exatos
+        // "N linhas" por tela — rolagem é um caminho de código muito mais
+        // simples e maduro em qualquer motor do que layout multi-coluna, e
+        // não existe "segunda coluna" possível se não existem colunas.
+        //
+        // O "tamanho da página" em px é sempre um múltiplo exato da altura
+        // de linha atual (lida de volta via getComputedStyle depois que o
+        // <style> injetado já aplicou fonte/espaçamento) — garante que o
+        // corte de página nunca cai no meio de uma linha de texto; o único
+        // lugar onde a rolagem pode ficar "não perfeitamente alinhada" é
+        // dentro da margem entre parágrafos, que não tem texto nenhum
+        // pra cortar ao meio.
 
         private async Task<string> InvokeAsync(string script)
         {
@@ -873,18 +892,17 @@ namespace Sorvil.Views
             }
         }
 
-        // Fórmula do "passo" de página em px — usada com o texto IDÊNTICO
-        // aqui, em GoToPageAsync e no column-width de ApplyReaderStyleAsync.
-        // Math.floor garante um inteiro: a suspeita mais forte pra segunda
-        // coluna sobreviver às tentativas anteriores é o motor de coluna do
-        // WebView arredondando o column-width real de um jeito e o
-        // translateX usando um valor fracionário ligeiramente diferente —
-        // qualquer resíduo de sub-pixel já bastava pra descolar o corte da
-        // coluna do deslocamento aplicado, deixando uma fatia da coluna
-        // seguinte visível na borda.
-        private static string StepWidthJs(int margin)
+        // Mesma expressão usada em GetTotalPagesAsync e GoToPageAsync —
+        // texto idêntico de propósito, pra nunca haver dois cálculos de
+        // "altura de página" ligeiramente diferentes brigando entre si.
+        private static string PageHeightJs(int margin)
         {
-            return "Math.floor(document.documentElement.clientWidth - (" + margin + " * 2))";
+            return "(function() {" +
+                "var lh = parseFloat(getComputedStyle(document.body).lineHeight) || 24;" +
+                "var raw = document.documentElement.clientHeight - (" + margin + " * 2);" +
+                "var lines = Math.max(1, Math.floor(raw / lh));" +
+                "return lines * lh;" +
+                "})()";
         }
 
         private async Task<int> GetTotalPagesAsync()
@@ -892,9 +910,9 @@ namespace Sorvil.Views
             int margin = ReaderPreferenceStore.GetMarginPx();
             string script =
                 "(function() {" +
-                "var stepWidth = " + StepWidthJs(margin) + ";" +
-                "var usableScroll = Math.ceil(document.body.scrollWidth) - (" + margin + " * 2);" +
-                "return Math.max(1, Math.ceil(usableScroll / stepWidth));" +
+                "var pageHeight = " + PageHeightJs(margin) + ";" +
+                "var totalHeight = Math.ceil(document.body.scrollHeight);" +
+                "return Math.max(1, Math.ceil(totalHeight / pageHeight));" +
                 "})();";
             string result = await InvokeAsync(script);
             int pages;
@@ -905,15 +923,10 @@ namespace Sorvil.Views
         {
             _pageIndexInChapter = pageIndex;
             int margin = ReaderPreferenceStore.GetMarginPx();
-            // translate3d em vez de translateX puro — promove a camada pra
-            // composição via GPU, o que evita artefato de repintura
-            // ("ghosting"/coluna fantasma) que alguns builds mais antigos
-            // do motor da WebView têm com transform 2D simples.
             string script =
                 "(function() {" +
-                "var stepWidth = " + StepWidthJs(margin) + ";" +
-                "var offset = " + pageIndex + " * stepWidth;" +
-                "document.body.style.transform = 'translate3d(-' + offset + 'px, 0, 0)';" +
+                "var pageHeight = " + PageHeightJs(margin) + ";" +
+                "window.scrollTo(0, Math.round(" + pageIndex + " * pageHeight));" +
                 "})();";
             await InvokeAsync(script);
         }
@@ -958,80 +971,45 @@ namespace Sorvil.Views
                     break;
             }
 
-            // A causa mais provável da segunda coluna persistente: EPUBs
-            // reais trazem a PRÓPRIA folha de estilo (link/style no head),
-            // muitas vezes com `body { max-width: ...; margin: 0 auto; }`
-            // pensada pra tela de desktop. Isso faz a largura REAL do body
-            // ser diferente da largura do viewport que a gente mede aqui —
-            // então mesmo com column-width calculado certinho a partir do
-            // clientWidth, o body renderiza mais largo (ou mais estreito)
-            // que isso, e o motor de colunas do WebView decide que cabe
-            // mais de uma coluna. Por isso agora: (1) remove todo <link
-            // rel=stylesheet> e <style> que não seja o nosso, antes de
-            // aplicar qualquer coisa; (2) força width:100%/max-width:none
-            // em html e body, pra garantir que a largura de verdade seja
-            // sempre igual ao viewport, não o que o CSS original do livro
-            // pedia. column-count:1 continua como reforço, mas sozinho não
-            // bastava — a causa real era essa disputa de largura.
+            // EPUBs reais trazem a PRÓPRIA folha de estilo (link/style no
+            // head) — removida antes de aplicar a nossa, senão ela briga
+            // com a largura/fonte que a gente define. width:100%/
+            // max-width:none em html/body garante que a largura de verdade
+            // sempre bate com o viewport, não o que o CSS original do livro
+            // pedia pra tela de desktop.
             //
-            // pageWidth/pageHeight são medidos de DENTRO do próprio
-            // JavaScript (document.documentElement.clientWidth/Height),
-            // não calculados em C# a partir de ContentWebView.ActualWidth
-            // — evita a diferença de escala/DPI entre DIPs do XAML e px
-            // CSS do WebView.
-            //
-            // A margem de leitura vira padding do body, não Margin do
-            // WebView no XAML — um Margin ali deixava a cor de fundo da
-            // Page (não a do tema de leitura escolhido) visível como uma
-            // borda ao redor do texto. column-width já sai descontando
-            // essa margem duas vezes (esquerda+direita) pra bater com o
-            // mesmo cálculo usado em GetTotalPagesAsync/GoToPageAsync.
+            // Sem altura fixa nem column-* nenhum: o body flui normalmente
+            // (altura natural, cresce conforme o conteúdo), e quem decide
+            // "que pedaço mostrar" é só a posição de rolagem — ver
+            // GoToPageAsync/GetTotalPagesAsync/PageHeightJs. overflow:hidden
+            // em html só existe pra esconder a barra de rolagem/gesto nativo
+            // de arrastar (a rolagem programática via scrollTo continua
+            // funcionando normalmente com overflow:hidden — isso só bloqueia
+            // rolagem iniciada pelo usuário, não script).
             //
             // Fundo é forçado tanto em html quanto em body, e qualquer
             // elemento interno tem o próprio fundo zerado (background-color:
             // transparent) — sem isso, uma div/wrapper do próprio EPUB com
             // fundo branco embutido continua aparecendo por cima do tema
             // escolhido.
-            //
-            // Duas camadas extras de reforço contra a segunda coluna, além
-            // do que já existia:
-            // (1) column-width sai 2px MAIOR que o stepWidth usado pelo
-            //     translate3d em GoToPageAsync/GetTotalPagesAsync — de
-            //     propósito. Qualquer arredondamento do motor de coluna
-            //     passa a sobrar DENTRO da coluna atual (invisível, é só o
-            //     fim da mesma página) em vez de expor o começo da coluna
-            //     seguinte na borda direita.
-            // (2) um reflow síncrono forçado (leitura de offsetHeight) logo
-            //     depois de mutar o <style> — sem isso, builds antigos do
-            //     motor da WebView às vezes só recalculavam as colunas no
-            //     próximo evento de pintura, não na hora da mutação,
-            //     deixando GetTotalPagesAsync ler um scrollWidth ainda
-            //     desatualizado.
             string script =
                 "(function() {" +
                 "var foreign = document.querySelectorAll('link[rel=\"stylesheet\"], style:not(#sorvil-reader-style)');" +
                 "for (var i = 0; i < foreign.length; i++) { foreign[i].parentNode.removeChild(foreign[i]); }" +
-                "var pageHeight = Math.floor(document.documentElement.clientHeight);" +
-                "var margin = " + margin + ";" +
-                "var stepWidth = " + StepWidthJs(margin) + ";" +
                 "var style = document.getElementById('sorvil-reader-style');" +
                 "if (!style) { style = document.createElement('style'); style.id = 'sorvil-reader-style'; document.head.appendChild(style); }" +
                 "style.innerHTML = " +
                 "'html { margin:0 !important; padding:0 !important; width:100% !important; max-width:none !important; overflow:hidden !important; background-color: " + background + " !important; } ' +" +
                 "'body { margin:0 !important; width:100% !important; max-width:none !important; box-sizing:border-box !important; " +
+                "padding: " + margin + "px " + margin + "px !important; " +
                 "font-size: " + fontSize + "% !important; " +
                 "font-family: " + fontFamily + " !important; " +
                 "background-color: " + background + " !important; " +
                 "line-height: " + lineSpacing.ToString(System.Globalization.CultureInfo.InvariantCulture) + " !important; " +
                 "text-align: " + justification + " !important; " +
-                "column-gap: 0px !important; " +
-                "column-fill: auto !important; " +
-                "column-count: 1 !important; " +
-                "overflow: hidden !important; " +
                 "} ' +" +
                 "'* { color: " + foreground + " !important; background-color: transparent !important; max-width: 100% !important; } ' +" +
                 "'img, table { max-width: 100% !important; height: auto !important; background-color: initial !important; }';" +
-                "style.innerHTML += 'body { height: ' + pageHeight + 'px !important; padding: 0 ' + margin + 'px !important; column-width: ' + (stepWidth + 2) + 'px !important; }';" +
                 "void document.body.offsetHeight;" +
                 "})();";
 
