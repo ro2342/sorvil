@@ -156,12 +156,14 @@
   <ItemGroup>
     <!--
       epub.js (build "legacy", vendorizado) + JSZip (dependência dele) +
-      o bootstrap HTML/JS da ponte C#<->JS — ver Views\ReaderEpubPage.xaml.cs.
-      Arquivos de terceiros não são reescritos, só referenciados como
-      Content (ver EpubJs\README-VENDOR.md pra origem/versão exata).
+      reader-bridge.js (nossa ponte C#<->JS) — lidos como texto puro via
+      Package.Current.InstalledLocation e embutidos inline num HTML
+      montado em ReaderEpubPage.xaml.cs (BuildReaderHtmlAsync), não
+      navegados como arquivo. Arquivos de terceiros não são reescritos,
+      só referenciados como Content (ver EpubJs\README-VENDOR.md pra
+      origem/versão exata).
     -->
     <Content Include="Assets\EpubJs\*.js" />
-    <Content Include="Assets\EpubJs\*.html" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NETCore.UniversalWindowsPlatform" Version="6.2.14" />

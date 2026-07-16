@@ -92,17 +92,27 @@ fail referencing a type that "doesn't exist").
   vendorized under `Assets/EpubJs/` (`epub.legacy.min.js` — the ES5
   "legacy" build, not `epub.min.js` — plus its `jszip.min.js` dependency;
   see `Assets/EpubJs/README-VENDOR.md` for exact versions/how to update),
-  running inside a WebView. `Views/ReaderEpubPage.xaml.cs` navigates
-  `ContentWebView` once to the bundled bootstrap page
-  `ms-appx:///Assets/EpubJs/reader.html` (loads jszip + epub.js + our own
-  `reader-bridge.js`), then calls `SorvilReader.openBook(base64Epub,
-  startCfi, styleJson)` via `InvokeScriptAsync` — the whole `.epub` file is
-  read as bytes and base64-encoded in C# (`CryptographicBuffer.
-  EncodeToBase64String`) and passed as a plain string argument, *not* a
-  URL for epub.js to `fetch()` itself, because it isn't safe to assume
-  `fetch()` crosses from the `ms-appx://` origin (where `reader.html`
-  lives) to `ms-appdata://` (where downloaded books live) on this specific
-  WebView. `reader-bridge.js` decodes it back to an `ArrayBuffer`
+  running inside a WebView. **`ContentWebView.Navigate(new Uri("ms-appx:///..."))`
+  reliably threw a synchronous `COMException` ("Operation aborted",
+  `E_ABORT`, `0x80004004`) on real Lumia hardware — not a timing race
+  (deferring it past the page's `Loaded` event made no difference).**
+  `Views/ReaderEpubPage.xaml.cs` (`BuildReaderHtmlAsync`) instead reads
+  `jszip.min.js` + `epub.legacy.min.js` + `reader-bridge.js` as plain text
+  via `Package.Current.InstalledLocation` (`StorageFolder.GetFolderAsync`/
+  `GetFileAsync` — no `ms-appx` URI ever constructed) and inlines all three
+  directly as `<script>` blocks in one self-built HTML string, loaded with
+  `ContentWebView.NavigateToString(html)`. Don't reintroduce `Navigate(new
+  Uri("ms-appx:///..."))` for this WebView without a real device to verify
+  on. Once that bootstrap loads (`NavigationCompleted`), C# reads the
+  book's own `.epub` file, base64-encodes it (`Convert.ToBase64String` on
+  a plain `byte[]` — **not** `CryptographicBuffer.EncodeToBase64String`,
+  which threw the same `E_ABORT` for an ordinary-sized EPUB; that WinRT API
+  is sized for crypto keys/hashes, not bulk file encoding), and calls
+  `SorvilReader.openBook(base64Epub, startCfi, styleJson)` via
+  `InvokeScriptAsync` — passed as a plain string argument, not a URL for
+  epub.js to `fetch()` itself, since it isn't safe to assume `fetch()`
+  crosses between this WebView's local content origins reliably.
+  `reader-bridge.js` decodes it back to an `ArrayBuffer`
   (`atob` + `Uint8Array`) and hands it to `ePub(arrayBuffer)` — epub.js
   does its own unzipping (via JSZip) and OPF/NCX/nav parsing internally;
   none of that is done in C# anymore. Rendition uses `flow: "scrolled-doc"`

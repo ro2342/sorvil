@@ -14,8 +14,15 @@ builds de terceiros, baixados de:
 
 Pra atualizar: baixar a versão nova de `dist/` no pacote npm
 correspondente (via `https://unpkg.com/<pacote>@<versão>/dist/<arquivo>`)
-e substituir o arquivo aqui. `reader.html`/`reader-bridge.js` (nossos,
-não de terceiros) esperam a API pública do epub.js 0.3.x
-(`ePub()`, `book.renderTo()`, `rendition.themes`, eventos `relocated`/
-`rendered`) — conferir o changelog deles antes de pular pra uma major
-diferente.
+e substituir o arquivo aqui. `reader-bridge.js` (nosso, não de
+terceiros) espera a API pública do epub.js 0.3.x (`ePub()`,
+`book.renderTo()`, `rendition.themes`, eventos `relocated`/`rendered`)
+— conferir o changelog deles antes de pular pra uma major diferente.
+
+Esses três arquivos não são navegados como página — são lidos como
+texto puro (`Package.Current.InstalledLocation` + `FileIO.ReadTextAsync`)
+e embutidos inline num HTML montado em C#
+(`ReaderEpubPage.xaml.cs`, `BuildReaderHtmlAsync`), carregado via
+`WebView.NavigateToString`. `WebView.Navigate(new Uri("ms-appx:///..."))`
+lançava "Operation aborted (E_ABORT)" de forma consistente num Lumia
+real; `NavigateToString` com tudo inline evita isso de vez.

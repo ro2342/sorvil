@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
+using Windows.ApplicationModel;
 using Windows.Data.Json;
 using Windows.Storage;
 using Windows.UI;
@@ -28,20 +29,23 @@ namespace Sorvil.Views
     // foi trocar pra uma biblioteca madura, testada em produção há anos,
     // em vez de continuar reescrevendo a mesma lógica à mão.
     //
-    // Ponte C#<->JS: ContentWebView.Navigate leva pro bootstrap estático
-    // Assets/EpubJs/reader.html (carrega jszip.min.js + epub.legacy.min.js
-    // + reader-bridge.js). Depois que ele termina de carregar
-    // (ContentWebView_NavigationCompleted), chamamos
+    // Ponte C#<->JS: BuildReaderHtmlAsync lê jszip.min.js + epub.legacy.min.js
+    // + reader-bridge.js (Assets/EpubJs/) como texto e embute os três
+    // inline num HTML montado na hora, carregado via
+    // ContentWebView.NavigateToString — não Navigate(new Uri("ms-appx:///...")),
+    // que lançava Operation Aborted (E_ABORT) consistentemente num
+    // aparelho real (ver TryNavigateToReaderBootstrap). Depois que esse
+    // bootstrap termina de carregar (ContentWebView_NavigationCompleted),
+    // lemos o .epub baixado, codificamos em base64 e chamamos
     // SorvilReader.openBook(base64, cfi, styleJson) via InvokeScriptAsync
-    // passando o .epub inteiro em base64 como argumento — não como URL
-    // pro epub.js buscar sozinho, porque não dava pra confiar que fetch()
-    // atravessa o esquema ms-appx (onde mora reader.html) pro ms-appdata
-    // (onde mora o arquivo baixado) nessa WebView específica sem poder
-    // testar num aparelho de verdade. O JS devolve eventos (pronto,
-    // relocalizado, erro) via window.external.notify(JSON), que chegam
-    // aqui em ContentWebView_ScriptNotify — nunca fica em silêncio: todo
-    // erro (síncrono, de Promise, ou não tratado) vira uma mensagem
-    // visível, ver reader-bridge.js.
+    // — o arquivo inteiro vai como argumento, não como URL pro epub.js
+    // buscar sozinho, porque não dava pra confiar que fetch() atravessa
+    // entre origens de conteúdo local dessa WebView sem poder testar num
+    // aparelho de verdade. O JS devolve eventos (pronto, relocalizado,
+    // erro) via window.external.notify(JSON), que chegam aqui em
+    // ContentWebView_ScriptNotify — nunca fica em silêncio: todo erro
+    // (síncrono, de Promise, ou não tratado) vira uma mensagem visível,
+    // ver reader-bridge.js.
     //
     // A casca de leitura (barra de cima/baixo, painéis de fonte/tema/
     // gestos, índice) é a mesma máquina de estados de sempre
@@ -83,8 +87,6 @@ namespace Sorvil.Views
         private string _bookId;
         private BookRecord _record;
         private List<TocEntry> _toc = new List<TocEntry>();
-        private string _pendingBase64;
-        private string _pendingStartCfi;
         private string _currentCfi;
         private string _currentHref;
         private double _currentPercentage;
@@ -111,14 +113,15 @@ namespace Sorvil.Views
             _suppressSliderEvents = false;
         }
 
-        // WebView.Navigate() chamado antes do controle estar de fato
-        // realizado na árvore visual pode lançar uma COMException síncrona
-        // (Operation aborted, E_ABORT) — aconteceu de verdade num aparelho
-        // real logo na primeira navegação pro bootstrap do epub.js. O
-        // preparo do livro (ler arquivo, base64) em OnNavigatedTo pode
-        // terminar antes OU depois do Loaded da página disparar, então os
-        // dois lados chamam TryNavigateToReaderBootstrap — só o que
-        // acontecer por último de fato navega.
+        // WebView.Navigate(new Uri("ms-appx:///...")) lançava uma
+        // COMException síncrona (Operation aborted, E_ABORT) TODA vez num
+        // aparelho real, mesmo depois de garantir que só roda depois do
+        // Loaded da página — não era uma corrida de tempo (senão teria
+        // funcionado ao menos às vezes). Trocado por NavigateToString com
+        // todo o HTML/JS montado como uma string só em C# (lida via
+        // Package.Current.InstalledLocation, sem construir URI "ms-appx"
+        // nenhuma) — API totalmente diferente do WebView, evita qualquer
+        // coisa específica desse esquema de URI que estivesse quebrando.
         private bool _pageLoaded;
         private bool _navigatedToBootstrap;
 
@@ -128,9 +131,9 @@ namespace Sorvil.Views
             TryNavigateToReaderBootstrap();
         }
 
-        private void TryNavigateToReaderBootstrap()
+        private async void TryNavigateToReaderBootstrap()
         {
-            if (!_pageLoaded || _pendingBase64 == null || _navigatedToBootstrap)
+            if (!_pageLoaded || _record == null || _navigatedToBootstrap)
             {
                 return;
             }
@@ -138,12 +141,39 @@ namespace Sorvil.Views
             try
             {
                 LoadingStatusText.Text = "Carregando leitor...";
-                ContentWebView.Navigate(new Uri("ms-appx:///Assets/EpubJs/reader.html"));
+                string html = await BuildReaderHtmlAsync();
+                ContentWebView.NavigateToString(html);
             }
             catch (Exception ex)
             {
                 ShowLoadError("Erro ao carregar o leitor: " + ex.Message);
             }
+        }
+
+        // Lê os três arquivos (JSZip, epub.js, nossa ponte) direto da
+        // pasta instalada do pacote via StorageFolder — mesmo padrão já
+        // usado em todo o app pra ApplicationData.Current.LocalFolder,
+        // sem construir Uri "ms-appx" nenhuma — e embute tudo inline em
+        // <script> num HTML só. Sem <script src="..."> nenhum: como o
+        // conteúdo vai por NavigateToString (não por navegação de
+        // arquivo de verdade), não existe "diretório atual" pra resolver
+        // um src relativo.
+        private async Task<string> BuildReaderHtmlAsync()
+        {
+            StorageFolder assetsFolder = await Package.Current.InstalledLocation.GetFolderAsync("Assets");
+            StorageFolder epubJsFolder = await assetsFolder.GetFolderAsync("EpubJs");
+
+            string jsZipContent = await FileIO.ReadTextAsync(await epubJsFolder.GetFileAsync("jszip.min.js"));
+            string epubJsContent = await FileIO.ReadTextAsync(await epubJsFolder.GetFileAsync("epub.legacy.min.js"));
+            string bridgeContent = await FileIO.ReadTextAsync(await epubJsFolder.GetFileAsync("reader-bridge.js"));
+
+            return "<!DOCTYPE html><html><head><meta charset=\"utf-8\" />" +
+                "<style>html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#ffffff;}" +
+                "#viewer{width:100%;height:100%;}</style>" +
+                "<script>" + jsZipContent + "</script>" +
+                "<script>" + epubJsContent + "</script>" +
+                "<script>" + bridgeContent + "</script>" +
+                "</head><body><div id=\"viewer\"></div></body></html>";
         }
 
         // Esta página navega no Frame raiz da janela (App.RootFrame), não
@@ -193,17 +223,8 @@ namespace Sorvil.Views
             LoadingRing.IsActive = true;
             LoadingStatusText.Text = "Abrindo...";
 
-            // .NET Native em build Release corta a mensagem amigável de
-            // exceções genéricas — uma COMException de um HRESULT sem
-            // detalhe vira só a CHAVE do recurso, tipo "Excep_FromHResult",
-            // em vez do texto — já vimos isso antes com o crash de download. Sem
-            // esse rastro de "onde estava" quando a exceção aconteceu, um
-            // "Operation aborted" genérico não dá pista nenhuma de qual
-            // das várias operações WinRT em sequência foi a culpada.
-            string step = "início";
             try
             {
-                step = "carregando registro do livro";
                 _record = await LibraryDataStore.GetAsync(_bookId);
                 if (_record == null)
                 {
@@ -224,33 +245,18 @@ namespace Sorvil.Views
                 UpdateGestureMode();
                 UpdateWebViewBackgroundColor();
 
-                LoadingStatusText.Text = "Lendo arquivo...";
-                step = "abrindo a pasta Books";
-                StorageFolder booksFolder = await ApplicationData.Current.LocalFolder.GetFolderAsync("Books");
-                step = "abrindo o arquivo " + _record.LocalFilePath;
-                StorageFile epubFile = await booksFolder.GetFileAsync(_record.LocalFilePath);
-
-                step = "lendo os bytes do arquivo";
-                byte[] epubBytes;
-                using (Stream fileStream = await epubFile.OpenStreamForReadAsync())
-                using (MemoryStream memoryStream = new MemoryStream())
-                {
-                    await fileStream.CopyToAsync(memoryStream);
-                    epubBytes = memoryStream.ToArray();
-                }
-
-                step = "codificando em base64 (" + epubBytes.Length + " bytes)";
-                _pendingBase64 = Convert.ToBase64String(epubBytes);
-                _pendingStartCfi = _record.ReadingPositionJson;
-
-                // Não navega direto aqui — TryNavigateToReaderBootstrap só
-                // faz isso depois que o Loaded da página já disparou (ver
-                // comentário lá), evitando Navigate() cedo demais.
+                // A leitura do arquivo e a codificação em base64 só
+                // acontecem depois (em ContentWebView_NavigationCompleted),
+                // uma vez o bootstrap do leitor já estiver carregado — não
+                // segurar uma string de vários MB numa variável de
+                // instância enquanto o WebView ainda está inicializando a
+                // navegação evita qualquer disputa de memória entre as
+                // duas coisas.
                 TryNavigateToReaderBootstrap();
             }
             catch (Exception ex)
             {
-                ShowLoadError("Erro ao abrir o EPUB (" + step + "): " + ex.Message);
+                ShowLoadError("Erro ao abrir o EPUB: " + ex.Message);
             }
         }
 
@@ -283,23 +289,53 @@ namespace Sorvil.Views
             ContentWebView.DefaultBackgroundColor = color;
         }
 
-        // reader.html terminou de carregar (os dois scripts vendorizados +
-        // a ponte) — agora manda o livro em si pro epub.js abrir.
+        // O bootstrap (NavigateToString com os dois scripts vendorizados +
+        // a ponte inline) terminou de carregar — agora manda o livro em
+        // si pro epub.js abrir.
+        // .NET Native em build Release corta a mensagem amigável de
+        // exceções genéricas — uma COMException de um HRESULT sem
+        // detalhe vira só a CHAVE do recurso, tipo "Excep_FromHResult", em
+        // vez do texto (já visto antes num crash de download). Sem um
+        // rastro de "onde estava" quando a exceção aconteceu, um
+        // "Operation aborted" genérico não dá pista nenhuma de qual das
+        // várias operações WinRT em sequência foi a culpada — por isso
+        // "step" vai dentro da mensagem de erro.
         private async void ContentWebView_NavigationCompleted(WebView sender, WebViewNavigationCompletedEventArgs args)
         {
-            if (!args.IsSuccess || _pendingBase64 == null)
+            if (!args.IsSuccess || _record == null)
             {
                 return;
             }
 
-            string base64 = _pendingBase64;
-            string startCfi = _pendingStartCfi;
-            _pendingBase64 = null;
-            _pendingStartCfi = null;
+            string step = "lendo arquivo do livro";
+            try
+            {
+                LoadingStatusText.Text = "Lendo arquivo...";
+                StorageFolder booksFolder = await ApplicationData.Current.LocalFolder.GetFolderAsync("Books");
+                step = "abrindo o arquivo " + _record.LocalFilePath;
+                StorageFile epubFile = await booksFolder.GetFileAsync(_record.LocalFilePath);
 
-            LoadingStatusText.Text = "Abrindo livro...";
-            string styleJson = BuildStyleJson();
-            await InvokeAsync("SorvilReader.openBook", new[] { base64, startCfi ?? string.Empty, styleJson });
+                step = "lendo os bytes do arquivo";
+                byte[] epubBytes;
+                using (Stream fileStream = await epubFile.OpenStreamForReadAsync())
+                using (MemoryStream memoryStream = new MemoryStream())
+                {
+                    await fileStream.CopyToAsync(memoryStream);
+                    epubBytes = memoryStream.ToArray();
+                }
+
+                step = "codificando em base64 (" + epubBytes.Length + " bytes)";
+                string base64 = Convert.ToBase64String(epubBytes);
+
+                step = "abrindo o livro no epub.js";
+                LoadingStatusText.Text = "Abrindo livro...";
+                string styleJson = BuildStyleJson();
+                await InvokeAsync("SorvilReader.openBook", new[] { base64, _record.ReadingPositionJson ?? string.Empty, styleJson });
+            }
+            catch (Exception ex)
+            {
+                ShowLoadError("Erro ao abrir o EPUB (" + step + "): " + ex.Message);
+            }
         }
 
         private void ContentWebView_NavigationFailed(object sender, WebViewNavigationFailedEventArgs args)
