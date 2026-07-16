@@ -316,12 +316,14 @@ namespace Sorvil.Views
             string step = "lendo arquivo do livro";
             try
             {
-                LoadingStatusText.Text = "Lendo arquivo...";
+                LoadingStatusText.Text = "Abrindo pasta...";
                 StorageFolder booksFolder = await ApplicationData.Current.LocalFolder.GetFolderAsync("Books");
                 step = "abrindo o arquivo " + _record.LocalFilePath;
+                LoadingStatusText.Text = "Abrindo arquivo...";
                 StorageFile epubFile = await booksFolder.GetFileAsync(_record.LocalFilePath);
 
                 step = "lendo os bytes do arquivo";
+                LoadingStatusText.Text = "Lendo arquivo...";
                 byte[] epubBytes;
                 using (Stream fileStream = await epubFile.OpenStreamForReadAsync())
                 using (MemoryStream memoryStream = new MemoryStream())
@@ -331,6 +333,7 @@ namespace Sorvil.Views
                 }
 
                 step = "codificando em base64 (" + epubBytes.Length + " bytes)";
+                LoadingStatusText.Text = "Codificando... (" + (epubBytes.Length / 1024) + " KB)";
                 string base64 = Convert.ToBase64String(epubBytes);
 
                 // Manda em pedaços pequenos (beginBook -> appendBookChunk*
@@ -341,15 +344,25 @@ namespace Sorvil.Views
                 // enorme como o gargalo de verdade. Em pedaços, cada
                 // chamada é pequena e rápida, e o usuário vê progresso de
                 // verdade em vez de uma tela parada.
-                step = "enviando o livro pro leitor";
                 int chunkCount = (base64.Length + ChunkSize - 1) / ChunkSize;
                 _pendingChunkCount = chunkCount;
+                step = "enviando o livro pro leitor (pedaço 0/" + chunkCount + ")";
+                LoadingStatusText.Text = "Enviando... 0/" + chunkCount;
                 await InvokeAsync("SorvilReader.beginBook", new[] { chunkCount.ToString() });
+                int chunkIndex = 0;
                 for (int offset = 0; offset < base64.Length; offset += ChunkSize)
                 {
                     int length = Math.Min(ChunkSize, base64.Length - offset);
                     string chunk = base64.Substring(offset, length);
                     await InvokeAsync("SorvilReader.appendBookChunk", new[] { chunk });
+                    chunkIndex++;
+                    // Atualiza o texto direto daqui, sem depender do
+                    // ScriptNotify de volta do JS pra esse número — dá pra
+                    // ver o progresso mesmo se o canal de eventos JS->C#
+                    // não estiver chegando por algum motivo específico do
+                    // conteúdo carregado via NavigateToString.
+                    step = "enviando o livro pro leitor (pedaço " + chunkIndex + "/" + chunkCount + ")";
+                    LoadingStatusText.Text = "Enviando... " + chunkIndex + "/" + chunkCount;
                 }
 
                 step = "abrindo o livro no epub.js";
