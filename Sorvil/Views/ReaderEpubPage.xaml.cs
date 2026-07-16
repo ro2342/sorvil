@@ -1083,21 +1083,29 @@ namespace Sorvil.Views
             string fontFamilyCss = string.IsNullOrEmpty(fontFamily)
                 ? string.Empty
                 : "font-family: " + fontFamily + " !important; ";
+            // CSS de texto entre ASPAS DUPLAS aqui de propósito — valores
+            // de font-family (ex.: "'Segoe UI', sans-serif") têm aspas
+            // SIMPLES dentro, que fechariam uma string JS delimitada por
+            // aspas simples no meio da frase e quebrariam a sintaxe do
+            // script inteiro (o eval() nem chega a rodar — style.innerHTML
+            // nunca é setado, sobra só o HTML cru do capítulo sem nenhum
+            // dos nossos ajustes). Aspas duplas não colidem com aspas
+            // simples de CSS.
             string script =
                 "(function() {" +
                 "var style = document.getElementById('sorvil-reader-style');" +
                 "if (!style) { style = document.createElement('style'); style.id = 'sorvil-reader-style'; document.head.appendChild(style); }" +
                 "style.innerHTML = " +
-                "'html { max-width: 100% !important; overflow: hidden !important; background-color: " + background + " !important; font-size: " + fontSize + "% !important; } ' +" +
-                "'body { margin: 0 !important; max-width: 100% !important; box-sizing: border-box !important; " +
+                "\"html { max-width: 100% !important; overflow: hidden !important; background-color: " + background + " !important; font-size: " + fontSize + "% !important; } \" +" +
+                "\"body { margin: 0 !important; max-width: 100% !important; box-sizing: border-box !important; " +
                 "padding: " + margin + "px " + margin + "px !important; " +
                 "background-color: " + background + " !important; " +
                 "color: " + foreground + "; " +
                 "line-height: " + lineSpacing.ToString(System.Globalization.CultureInfo.InvariantCulture) + " !important; " +
                 "text-align: " + justification + " !important; " +
                 fontFamilyCss +
-                "} ' +" +
-                "'img { max-width: 100% !important; height: auto !important; }';" +
+                "} \" +" +
+                "\"img { max-width: 100% !important; height: auto !important; }\";" +
                 "void document.body.offsetHeight;" +
                 "})();";
 
