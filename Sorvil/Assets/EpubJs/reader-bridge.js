@@ -108,7 +108,7 @@
     (items || []).forEach(function (item) {
       result.push({
         label: item.label ? item.label.trim() : "",
-        href: item.href,
+        href: item.href || "",
         depth: depth || 0,
       });
       if (item.subitems && item.subitems.length) {
@@ -194,8 +194,8 @@
       }
       notify({
         type: "relocated",
-        cfi: location.start.cfi,
-        href: location.start.href,
+        cfi: (location.start && location.start.cfi) || "",
+        href: (location.start && location.start.href) || "",
         percentage: percentage,
         atStart: location.atStart === true,
         atEnd: location.atEnd === true,
@@ -234,10 +234,16 @@
     try {
       book = ePub(arrayBuffer);
       checkpoint("4/8 ePub() construído");
+      // "scrolled-continuous" trata o livro inteiro como uma rolagem só
+      // (capítulos emendados), então next()/prev() avançam por UMA TELA
+      // de cada vez, cruzando fronteira de capítulo suavemente — "scrolled-doc"
+      // trata cada capítulo como "uma página só" (next() = pular pro
+      // capítulo inteiro seguinte), o que não bate com o toque/gesto de
+      // "virar página" que o app espera.
       rendition = book.renderTo("viewer", {
         width: "100%",
         height: "100%",
-        flow: "scrolled-doc",
+        flow: "scrolled-continuous",
         spread: "none",
       });
       checkpoint("5/8 renderTo() chamado");

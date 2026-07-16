@@ -509,7 +509,16 @@ namespace Sorvil.Views
             }
             catch (Exception ex)
             {
-                ShowLoadError("Erro ao processar mensagem do leitor: " + ex.Message);
+                // Se o livro já está de pé (_bookReady), uma falha aqui é
+                // só posição/índice não salvando — não vale a pena cobrir
+                // a tela inteira com um erro bloqueante por cima do livro
+                // que já está sendo lido normalmente. Só mostra o erro
+                // (que aí sim é fatal de verdade) se isso aconteceu ANTES
+                // do livro terminar de abrir.
+                if (!_bookReady)
+                {
+                    ShowLoadError("Erro ao processar mensagem do leitor: " + ex.Message);
+                }
             }
         }
 
