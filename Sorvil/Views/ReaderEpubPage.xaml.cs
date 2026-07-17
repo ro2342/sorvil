@@ -189,11 +189,18 @@ namespace Sorvil.Views
                 "#viewer{width:100%;height:100%;}" +
                 "#sorvil-console{position:fixed;top:0;left:0;right:0;bottom:0;overflow:auto;padding:12px;" +
                 "font-size:16px;line-height:1.5;font-family:Consolas,monospace;color:#0f0;background:#000;" +
-                "z-index:99999;white-space:pre-wrap;word-break:break-all;}</style>" +
+                "z-index:99999;white-space:pre-wrap;word-break:break-all;}" +
+                // Diagnóstico temporário (bug de virada de página pulando
+                // capítulo) — tira depois de achar a causa raiz, ver
+                // comentário em reader-bridge.js (debugGeometry/paintDebug).
+                "#sorvil-debug{position:fixed;left:0;right:0;bottom:0;padding:6px 8px;" +
+                "font-size:11px;line-height:1.3;font-family:Consolas,monospace;color:#ff0;" +
+                "background:rgba(0,0,0,0.8);z-index:99998;white-space:pre-wrap;word-break:break-all;}</style>" +
                 "<script>" + jsZipContent + "</script>" +
                 "<script>" + epubJsContent + "</script>" +
                 "<script>" + bridgeContent + "</script>" +
-                "</head><body><div id=\"viewer\"></div><div id=\"sorvil-console\"></div></body></html>";
+                "</head><body><div id=\"viewer\"></div><div id=\"sorvil-console\"></div>" +
+                "<div id=\"sorvil-debug\"></div></body></html>";
         }
 
         // Esta página navega no Frame raiz da janela (App.RootFrame), não

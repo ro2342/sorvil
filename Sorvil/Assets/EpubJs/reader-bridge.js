@@ -351,15 +351,72 @@
     openBookFromBase64(base64Data, startCfi, styleJson);
   };
 
+  // Diagnóstico temporário pro bug "vira página pula capítulo" ainda
+  // reproduzindo no Lumia real mesmo depois de manager:"continuous" —
+  // testado num Chrome comum (com e sem ResizeObserver, simulando o
+  // fallback que o EdgeHTML usa) e lá o next() rola uma tela por vez
+  // corretamente, então a suspeita é que a geometria que o epub.js lê
+  // do WebView real (layout.height / scrollTop do container) está
+  // errada especificamente nessa engine. Este bloco expõe essa
+  // geometria na tela via #sorvil-debug (elemento que NÃO é removido
+  // por hideConsole) pra ler direto no aparelho. Remover depois que o
+  // valor problemático for identificado.
+  function debugGeometry() {
+    var manager = rendition && rendition.manager;
+    var container = manager && manager.container;
+    var layoutHeight = manager && manager.layout ? manager.layout.height : undefined;
+    return {
+      scrollTop: container ? container.scrollTop : undefined,
+      scrollHeight: container ? container.scrollHeight : undefined,
+      clientHeight: container ? container.clientHeight : undefined,
+      layoutHeight: layoutHeight,
+      windowInnerHeight: window.innerHeight,
+    };
+  }
+
+  function paintDebug(label, before, after) {
+    try {
+      var el = document.getElementById("sorvil-debug");
+      if (!el) {
+        return;
+      }
+      var delta = before && after && typeof before.scrollTop === "number" && typeof after.scrollTop === "number"
+        ? after.scrollTop - before.scrollTop
+        : undefined;
+      el.textContent =
+        label + " | href=" + (_state.href || "?") +
+        " | delta=" + delta +
+        " | layoutH=" + after.layoutHeight +
+        " | scrollTop=" + after.scrollTop + "/" + after.scrollHeight +
+        " | clientH=" + after.clientHeight +
+        " | winH=" + after.windowInnerHeight;
+    } catch (e) {
+      // diagnóstico não pode ser causa de mais um erro.
+    }
+  }
+
+  function withDebug(label, action) {
+    var before = debugGeometry();
+    action();
+    // scrollBy/append podem ser assíncronos (continuous manager usa a
+    // fila "q" pra encadear check()/append()) — duas voltas de rAF dão
+    // tempo de sobra pro layout assentar antes de medir "depois".
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        paintDebug(label, before, debugGeometry());
+      });
+    });
+  }
+
   window.sorvilNext = function () {
     if (rendition) {
-      rendition.next();
+      withDebug("next()", rendition.next.bind(rendition));
     }
   };
 
   window.sorvilPrev = function () {
     if (rendition) {
-      rendition.prev();
+      withDebug("prev()", rendition.prev.bind(rendition));
     }
   };
 
